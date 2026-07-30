@@ -1,23 +1,1565 @@
-<!doctype html>
-<html lang="ko">
+<!DOCTYPE html>
+<html lang="ko" data-theme="light" data-display="ring" data-panel="closed">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<!-- GitHub Pages 는 폴더 주소(.../k-timer/)에서 index.html 을 찾는다.
-     타이머 본체는 USB 배포·문서에서 쓰는 이름을 지켜야 하므로 그대로 두고,
-     이 파일이 넘겨보내는 역할만 한다. 같은 폴더 상대 경로라 오프라인에서도 동작한다. -->
-<meta http-equiv="refresh" content="0; url=focus-timer.html">
-<link rel="canonical" href="focus-timer.html">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>수업용 집중 타이머</title>
 <style>
-  body{font-family:"Segoe UI",system-ui,"Malgun Gothic",sans-serif;
-       display:grid;place-items:center;min-height:100vh;margin:0;
-       background:#f3f5f8;color:#151922}
-  a{color:#2563eb}
+/* ─────────────────────────────────────────────────────────────
+   1. 색상 변수 / 테마
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface-2:#eef1f5; --line:#d8dee7;
+  --text:#151922; --muted:#69707d;
+  --accent:#2563eb; --accent-soft:#dbe6ff;
+  --warn:#d97706; --danger:#dc2626;
+  --track:#e2e7ef; --dial:#f8fafc;
+  --shadow:0 6px 24px rgba(20,28,45,.10);
+  /* 패널 폭은 화면 크기에 따라 아래 미디어 쿼리에서 바뀐다.
+     스테이지의 게이지 계산도 이 값을 읽으므로 한 곳만 고치면 둘이 같이 따라온다 */
+  --panelW:352px;
+}
+html[data-theme="dark"]{
+  --bg:#0d1016; --surface:#161b23; --surface-2:#1e242e; --line:#2b333f;
+  --text:#eef1f6; --muted:#98a1b0;
+  --accent:#5b93ff; --accent-soft:#1d2c4d;
+  --warn:#f0a638; --danger:#ff5f5f;
+  --track:#242b36; --dial:#1a2029;
+  --shadow:0 6px 24px rgba(0,0,0,.35);
+}
+
+/* 시간·게이지·플래시 전용 색(--live)의 우선순위. 패널 버튼 등 UI 색(--accent)은 건드리지 않는다.
+   1) 테마 강조색      → --accent
+   2) 사용자 기본 색상 → --base (색상 선택기로 고른 값)
+   3) 단계 색상 지정   → --step
+   4) 남은 시간 경고   → 아래 [data-warn] 규칙이 특정성으로 이긴다 = 경고가 모든 색을 덮는다
+   경고를 절대 가리지 않는 것이 이 순서의 목적이다. --step/--base 는 JS 가 인라인으로 넣는다. */
+body                     { --live:var(--step, var(--base, var(--accent))); }
+body[data-warn="warn"]   { --live:var(--warn); }
+body[data-warn="danger"] { --live:var(--danger); }
+body[data-warn="over"]   { --live:var(--danger); }
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:"Segoe UI",system-ui,-apple-system,"Malgun Gothic",sans-serif;
+  display:grid; grid-template-columns:1fr auto; overflow:hidden;
+  transition:background .25s, color .25s;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   2. 스테이지 (큰 화면)
+   ───────────────────────────────────────────────────────────── */
+.stage{
+  /* 게이지 크기는 두 가지에 동시에 맞춘다.
+       가로 — 패널이 차지한 폭(--pw)을 뺀 나머지
+       세로 — 제목·안내·버튼이 쓰는 높이(--chrome)를 뺀 나머지
+     예전에는 vmin 하나만 봤기 때문에, 창이 낮으면 아래 버튼이 잘려 나갔다. */
+  --pw:0px;
+  --chrome:clamp(148px,30vh,300px);
+  --gauge:min(calc(100vw - var(--pw) - 6vmin), calc(100vh - var(--chrome)), 660px);
+  position:relative; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:clamp(8px,2vmin,24px);
+  min-width:0; padding:2vmin;
+}
+html[data-panel="open"] .stage{--pw:var(--panelW)}
+#wallClock{
+  position:absolute; top:2vmin; left:2.6vmin;
+  font-size:clamp(.8rem,1.9vmin,1.3rem); color:var(--muted);
+  font-variant-numeric:tabular-nums; letter-spacing:.01em;
+}
+.stage-head{display:flex;align-items:baseline;gap:16px;min-height:1.4em}
+#stepName{
+  font-size:clamp(1.1rem,3.6vmin,2.6rem); font-weight:650;
+  letter-spacing:-.01em; text-align:center;
+}
+#counter{
+  font-size:clamp(.8rem,1.9vmin,1.25rem); color:var(--muted);
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+
+.clock-wrap{position:relative;display:grid;place-items:center;width:var(--gauge);height:var(--gauge)}
+.gauge{position:absolute;inset:0;width:100%;height:100%}
+.gauge .track{fill:none;stroke:var(--track);stroke-width:5}
+.gauge .disk-bg{fill:var(--dial);stroke:var(--line);stroke-width:.8}
+.gauge .disk-sector{fill:var(--live);transition:fill .3s}
+.gauge .disk-hole{fill:var(--surface);opacity:.93}
+.gauge .disk-ticks line{stroke:var(--muted)}
+.gauge .bar{
+  fill:none;stroke:var(--live);stroke-width:5;stroke-linecap:round;
+  stroke-dasharray:282.743; transition:stroke .3s;
+}
+#time{
+  position:relative;z-index:1;
+  font-size:calc(var(--gauge) * .235);
+  font-weight:700; letter-spacing:-.02em; line-height:1;
+  font-variant-numeric:tabular-nums; color:var(--live);
+  transition:color .3s;
+}
+#time.long{font-size:calc(var(--gauge) * .155)}
+
+#note{
+  font-size:clamp(.9rem,2.1vmin,1.4rem); color:var(--muted);
+  min-height:1.5em; text-align:center;
+}
+
+/* 조작 버튼 — 실행 중 마우스를 움직이지 않으면 흐려진다 */
+.controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;transition:opacity .5s}
+body.dim-controls .controls{opacity:.12}
+
+/* ─────────────────────────────────────────────────────────────
+   3. 버튼 / 폼 공통
+   ───────────────────────────────────────────────────────────── */
+button{
+  font:inherit;cursor:pointer;border:1px solid var(--line);
+  background:var(--surface);color:var(--text);
+  border-radius:10px;padding:10px 16px;transition:background .15s,border-color .15s,opacity .15s;
+}
+button:hover:not(:disabled){background:var(--surface-2);border-color:var(--accent)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;min-width:120px}
+.primary:hover:not(:disabled){background:var(--accent);filter:brightness(1.1)}
+.controls button{font-size:clamp(.9rem,1.8vmin,1.1rem)}
+
+input[type=text],input[type=number],input[type=time],select{
+  font:inherit;background:var(--surface);color:var(--text);
+  border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0;
+}
+select{cursor:pointer}
+input[type=color]{
+  width:58px;height:36px;padding:3px;cursor:pointer;background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;
+}
+input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+label{font-size:.9rem}
+
+/* ─────────────────────────────────────────────────────────────
+   4. 설정 패널
+   ───────────────────────────────────────────────────────────── */
+.panel{
+  width:var(--panelW);background:var(--surface);border-left:1px solid var(--line);
+  /* 위쪽 여백은 고정된 ⚙설정 버튼이 첫 제목을 가리지 않도록 비워 둔 자리다 */
+  overflow-y:auto;padding:54px 18px 18px;display:flex;flex-direction:column;gap:4px;
+  transition:margin-right .28s ease, opacity .2s;
+}
+html[data-panel="closed"] .panel{margin-right:calc(-1 * var(--panelW) - 8px);opacity:0;pointer-events:none}
+
+/* 접이식 구획 — 평소에는 제목만 보이고, 제목을 누르면 그 안의 설정이 펼쳐진다.
+   <details>/<summary> 라 여닫는 동작·키보드 조작·접근성이 브라우저 기본으로 따라온다 */
+.sec{border-bottom:1px solid var(--line)}
+.sec:last-child{border:none}
+.sec[open]{padding-bottom:18px}
+.sec>summary{
+  font-size:1.06rem;font-weight:700;color:var(--text);
+  padding:11px 8px;border-radius:8px;cursor:pointer;user-select:none;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  list-style:none;   /* Firefox 기본 삼각형 제거 */
+}
+.sec>summary::-webkit-details-marker{display:none}
+.sec>summary::after{content:"▾";font-size:.85em;color:var(--muted);transition:transform .18s ease}
+.sec[open]>summary{margin-bottom:8px}
+.sec[open]>summary::after{transform:rotate(180deg)}
+.sec>summary:hover{background:var(--surface-2)}
+.sec>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.preset-grid button{padding:12px 4px;font-weight:600;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:8px;align-items:center}
+.row.mt{margin-top:10px}
+
+/* 스텝 목록 */
+.step{display:grid;grid-template-columns:1fr 54px 26px auto;gap:5px;align-items:center;margin-bottom:6px;
+      padding:4px;border-radius:8px;border:1px solid transparent}
+.step.active{border-color:var(--accent);background:var(--accent-soft)}
+.step .mini{display:flex;gap:2px}
+.step .mini button{padding:6px 7px;font-size:.8rem;line-height:1;border-radius:6px}
+/* 색상 견본 — 클릭하면 팔레트를 순환한다. 항상 그 단계에 실제로 쓰이는 색을 보여준다 */
+.step .swatch{padding:0;height:26px;border-radius:6px}
+.step .swatch:hover{border-color:var(--text)}
+.total{font-size:.85rem;color:var(--muted);margin:8px 0}
+
+.field{display:grid;grid-template-columns:1fr 76px;gap:8px;align-items:center;margin-bottom:8px}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hint{font-size:.8rem;color:var(--muted);line-height:1.8}
+.hint kbd{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;font-family:inherit;font-size:.78rem;
+}
+
+/* 패널 토글 버튼 — 우측 상단 고정 */
+/* z-index 는 패널(6)보다 위. 좁은 화면에서 패널이 겹쳐 뜰 때도 이 버튼으로 닫을 수 있어야 한다 */
+#panelBtn{position:fixed;top:12px;right:12px;z-index:7;box-shadow:var(--shadow)}
+
+/* ─────────────────────────────────────────────────────────────
+   5. 표시 방식 — ring / disk / number. CSS 만으로 갈아끼운다
+   ───────────────────────────────────────────────────────────── */
+html[data-display="ring"]   .disk-group{display:none}
+html[data-display="disk"]   .ring-group{display:none}
+html[data-display="number"] .gauge{display:none}
+
+/* 원판 모드: 숫자가 가운데 구멍(r=22, 지름 44) 안에 들어가야 하므로 링 모드보다 작다.
+   5자("05:00") 폭 ≈ 3×글자크기 → .125×gauge 면 37.5 로 44 안에 여유가 남는다. */
+html[data-display="disk"] #time{font-size:calc(var(--gauge) * .125)}
+html[data-display="disk"] #time.long{font-size:calc(var(--gauge) * .09)}
+
+/* 숫자만 모드: 장식을 모두 걷고 숫자를 최대로 */
+html[data-display="number"] .stage-head,
+html[data-display="number"] #wallClock,
+html[data-display="number"] #note{display:none}
+html[data-display="number"] .clock-wrap{width:auto;height:auto}
+/* 이 모드에는 원이 없어 글자 크기가 곧 레이아웃이다. 예전에는 30vmin 이라
+   패널이 차지한 폭도 창 높이도 보지 않았고, 그래서 좁은 창에서 숫자가 패널 밑으로 삐져나갔다.
+   "05:00" 의 실제 폭은 글자 크기의 약 2.5배(H:MM:SS 는 3.5배)라서 그 비율로 되짚어 계산한다. */
+html[data-display="number"] #time{
+  font-size:min(calc((100vw - var(--pw) - 8vmin) * .38), calc(100vh - 96px), 25rem);
+}
+html[data-display="number"] #time.long{
+  font-size:min(calc((100vw - var(--pw) - 8vmin) * .27), calc(100vh - 96px), 25rem);
+}
+html[data-display="number"] #time.long{font-size:min(18vmin,15rem)}
+
+/* ─────────────────────────────────────────────────────────────
+   6. 알림 애니메이션
+   ───────────────────────────────────────────────────────────── */
+#flash{position:fixed;inset:0;background:var(--live);opacity:0;pointer-events:none;z-index:10}
+@keyframes flash{
+  0%,100%{opacity:0} 8%{opacity:.5} 22%{opacity:0}
+  36%{opacity:.5} 50%{opacity:0} 64%{opacity:.5} 78%{opacity:0}
+}
+#flash.on{animation:flash 1.5s ease-in-out}
+@keyframes pulse{50%{transform:scale(1.045)}}
+body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
+
+@media (prefers-reduced-motion:reduce){
+  #flash.on{animation:none;opacity:.28}
+  body[data-warn="danger"] #time{animation:none}
+  *{transition-duration:0s !important}
+}
+
+/* ─────────────────────────────────────────────────────────────
+   7. 반응형 — 화면 폭·높이에 따른 단계별 조정
+
+   기준은 "교실에서 실제로 쓰는 화면" 순서다.
+     프로젝터·TV(1920×1080, 1280×720) → 교사 노트북(1366×768) → 태블릿 → 휴대전화
+   폭과 높이를 따로 본다. 노트북 창을 반만 쓰거나 휴대전화를 가로로 들면
+   폭은 넉넉한데 높이가 부족한 상황이 생기고, 그때 잘리는 건 아래쪽 조작 버튼이다.
+   ───────────────────────────────────────────────────────────── */
+
+/* ── 폭 1200px 미만 — 패널을 조금 좁혀 스테이지에 자리를 넘긴다 */
+@media (max-width:1199px){
+  :root{--panelW:312px}
+}
+
+/* ── 폭 900px 미만 — 패널을 더 좁히고 패널 속 칸도 다시 잡는다 (태블릿) */
+@media (max-width:900px){
+  :root{--panelW:280px}
+  .step{grid-template-columns:1fr 50px 26px auto;gap:4px}
+  .field{grid-template-columns:1fr 84px}
+}
+
+/* ── 폭 680px 미만 — 패널을 전체 화면 시트로 바꾼다.
+      이 아래로는 패널과 타이머를 나란히 두면 스테이지에 남는 폭이 360px 밑으로 떨어져
+      조작 버튼이 두 줄로 접히고, 그만큼 게이지가 밀려 아래가 잘린다.
+      그래서 "둘 다 조금씩" 대신 "패널을 볼 때는 패널만"으로 끊었다.
+      시트를 닫으면 타이머가 화면을 온전히 쓴다. */
+@media (max-width:680px){
+  :root{--panelW:100vw}
+  body{grid-template-columns:1fr}
+  .panel{position:fixed;top:0;right:0;bottom:0;z-index:6;border-left:none;padding:54px 14px 18px}
+  html[data-panel="open"] .stage{--pw:0px}
+  .step{grid-template-columns:1fr 56px 30px auto;gap:6px}
+  .field{grid-template-columns:1fr 92px}
+  .step .mini button{padding:8px 9px}     /* 손가락으로 누를 수 있는 크기 */
+  .controls button{padding:9px 13px}
+  .primary{min-width:88px}
+}
+
+/* ── 높이 560px 미만 — 낮은 창, 가로로 든 휴대전화.
+      여백과 제목을 줄여 게이지가 들어갈 세로를 확보한다 */
+@media (max-height:560px){
+  .stage{--chrome:clamp(112px,26vh,180px);gap:6px;padding:1vmin}
+  #wallClock{top:1vmin;left:1.6vmin}
+  .panel{padding-top:48px}
+  /* 조작 버튼을 한 줄에 붙여 둔다. 두 줄로 넘어가면 그만큼 게이지가 밀려
+     아래가 잘리는데, --chrome 은 줄 수를 미리 알 수 없다 */
+  .controls button{padding:8px 12px;font-size:.88rem}
+  .controls{gap:8px}
+  .primary{min-width:92px}
+}
+
+/* ── 높이 420px 미만 — 빈 자리로 잡아 두던 최소 높이까지 회수한다.
+      --chrome 은 더 줄이지 않는다. 제목·안내·버튼의 고정 비용이 대략 여기서 바닥이라,
+      더 낮추면 게이지가 커지면서 아래 버튼이 화면 밖으로 밀린다 */
+@media (max-height:420px){
+  .stage-head{min-height:0}
+  #note{min-height:0}
+}
+
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 </style>
 </head>
-<body>
-  <!-- 자동 이동이 막힌 환경(일부 학교망 필터 등)을 위한 손수 이동 링크 -->
-  <p>타이머로 이동 중입니다… <a href="focus-timer.html">바로 열기</a></p>
+<body data-warn="">
+
+<div id="flash"></div>
+<button id="panelBtn" aria-expanded="false" aria-controls="panel" title="설정 (S)">⚙ 설정</button>
+
+<!-- ══ 스테이지 ══════════════════════════════════════════════ -->
+<main class="stage">
+  <div id="wallClock"></div>
+  <div class="stage-head">
+    <div id="stepName">집중</div>
+    <div id="counter"></div>
+  </div>
+
+  <div class="clock-wrap">
+    <svg class="gauge" viewBox="0 0 100 100" aria-hidden="true">
+      <!-- 링: 12시에서 시작하도록 이 그룹만 회전시킨다 (원판은 자체 좌표를 쓰므로 svg 를 돌리면 안 된다) -->
+      <g class="ring-group" transform="rotate(-90 50 50)">
+        <circle class="track" cx="50" cy="50" r="45"></circle>
+        <circle class="bar" id="bar" cx="50" cy="50" r="45" stroke-dashoffset="0"></circle>
+      </g>
+      <!-- 원판: 부채꼴이 12시로 수축한다. 눈금은 부채꼴 바깥에 둬서 색 위에 겹치지 않게 한다 -->
+      <g class="disk-group">
+        <circle class="disk-bg" cx="50" cy="50" r="47.5"></circle>
+        <path class="disk-sector" id="diskSector" d=""></path>
+        <g class="disk-ticks" id="diskTicks"></g>
+        <circle class="disk-hole" cx="50" cy="50" r="22"></circle>
+      </g>
+    </svg>
+    <div id="time">05:00</div>
+  </div>
+
+  <div id="note"></div>
+
+  <div class="controls">
+    <button id="startBtn" class="primary">시작</button>
+    <button id="resetBtn" title="초기화 (R)">초기화</button>
+    <button id="nextBtn" title="다음 단계 (N)">다음 ▶</button>
+    <button id="fsBtn" title="전체화면 (F)">⛶ 전체화면</button>
+  </div>
+</main>
+
+<!-- ══ 설정 패널 ═════════════════════════════════════════════ -->
+<aside class="panel" id="panel">
+
+  <details class="sec" id="secQuick" open>
+    <summary>빠른 시작</summary>
+    <div class="preset-grid" id="presets"></div>
+    <div class="row mt">
+      <input type="text" id="customTime" maxlength="7" placeholder="분:초"
+             aria-label="직접 입력 시간 — 분 또는 분:초" style="width:80px">
+      <button id="customBtn" style="flex:1"
+              title="5 → 5분 / 5:30 → 5분 30초 / :45 → 45초">직접 입력한 시간으로 시작</button>
+    </div>
+    <div class="total" id="customMsg"></div>
+    <div class="row mt">
+      <input type="time" id="untilTime" aria-label="종료 시각" style="width:110px">
+      <button id="untilBtn" style="flex:1" title="지정한 시각까지 (벽시계 기준)">이 시각까지</button>
+    </div>
+    <div class="total" id="untilMsg"></div>
+  </details>
+
+  <details class="sec" id="secSteps">
+    <summary>활동 단계</summary>
+
+    <div class="row">
+      <select id="tplSelect" aria-label="저장된 수업 템플릿" style="flex:1"></select>
+      <button id="tplDel" title="선택한 템플릿 삭제" aria-label="선택한 템플릿 삭제">✕</button>
+    </div>
+    <div class="row mt">
+      <input type="text" id="tplName" placeholder="템플릿 이름 (예: 3단원 실험)" maxlength="40" style="flex:1">
+      <button id="tplSave" title="현재 단계 구성을 이 이름으로 저장">저장</button>
+    </div>
+    <div class="row mt">
+      <button id="tplExport" style="flex:1" title="템플릿 전체를 JSON 파일로 저장">↓ 내보내기</button>
+      <button id="tplImport" style="flex:1" title="JSON 파일에서 템플릿 불러오기">↑ 가져오기</button>
+      <input type="file" id="tplFile" accept="application/json,.json" hidden>
+    </div>
+    <div class="total" id="tplMsg"></div>
+
+    <div id="stepRows"></div>
+    <button id="addStep" style="width:100%">＋ 단계 추가</button>
+    <div class="total" id="stepTotal"></div>
+    <div class="toggle">
+      <label for="autoAdv">단계 끝나면 자동으로 다음 시작</label>
+      <input type="checkbox" id="autoAdv">
+    </div>
+    <button id="runSteps" class="primary" style="width:100%">단계 순서대로 시작</button>
+    <div class="row mt">
+      <input type="time" id="fitTime" aria-label="수업 종료 시각" style="width:110px">
+      <button id="fitBtn" style="flex:1" title="남은 시간에 맞춰 각 단계를 비율대로 줄여 시작">종료 시각에 맞춰 압축 시작</button>
+    </div>
+    <div class="total" id="fitMsg"></div>
+  </details>
+
+  <details class="sec" id="secPomo">
+    <summary>뽀모도로</summary>
+    <div class="field"><label for="pFocus">집중 (분)</label><input type="number" id="pFocus" min="1" max="180"></div>
+    <div class="field"><label for="pBreak">휴식 (분)</label><input type="number" id="pBreak" min="1" max="60"></div>
+    <div class="field"><label for="pLong">긴 휴식 (분)</label><input type="number" id="pLong" min="1" max="90"></div>
+    <div class="field"><label for="pRounds">반복 횟수</label><input type="number" id="pRounds" min="1" max="12"></div>
+    <div class="field"><label for="pEvery">긴 휴식 주기</label><input type="number" id="pEvery" min="1" max="12"></div>
+    <button id="runPomo" class="primary" style="width:100%">뽀모도로 시작</button>
+  </details>
+
+  <details class="sec" id="secDisp">
+    <summary>표시 &amp; 소리</summary>
+    <label for="dispSel">표시 방식 <span style="color:var(--muted)">(M 키로 순환)</span></label>
+    <select id="dispSel" style="width:100%;margin:6px 0 12px">
+      <option value="ring">링 + 숫자 — 얇은 테두리와 큰 숫자</option>
+      <option value="disk">원판 + 숫자 — 남은 양이 면적으로</option>
+      <option value="number">숫자만 — 장식 없이 가장 크게</option>
+    </select>
+
+    <label for="baseColor">기본 타이머 색상</label>
+    <div class="row" style="margin:6px 0 2px">
+      <input type="color" id="baseColor" aria-label="기본 타이머 색상 고르기">
+      <button id="baseReset" style="flex:1">테마 기본값으로</button>
+    </div>
+    <div class="total" id="baseMsg"></div>
+    <div class="toggle"><label for="soundChk">종료 알림음</label><input type="checkbox" id="soundChk"></div>
+    <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음</label><input type="checkbox" id="preWarnChk"></div>
+    <div class="toggle"><label for="overrunChk">종료 후 초과 시간 표시 (+2:30)</label><input type="checkbox" id="overrunChk"></div>
+    <div class="toggle"><label for="clockChk">현재 시각 · 종료 예정 시각 표시</label><input type="checkbox" id="clockChk"></div>
+    <label for="vol">음량</label>
+    <input type="range" id="vol" min="0" max="1" step="0.05">
+    <div class="row mt">
+      <button id="testSound" style="flex:1">소리 테스트</button>
+      <button id="themeBtn" style="flex:1">🌗 테마</button>
+    </div>
+  </details>
+
+  <details class="sec" id="secKeys">
+    <summary>단축키</summary>
+    <div class="hint">
+      <kbd>Space</kbd> 시작·일시정지 &nbsp; <kbd>R</kbd> 초기화 &nbsp; <kbd>N</kbd> 다음 단계<br>
+      <kbd>F</kbd> 전체화면 &nbsp; <kbd>M</kbd> 표시 방식 &nbsp; <kbd>T</kbd> 테마<br>
+      <kbd>S</kbd> 설정 패널 &nbsp; <kbd>Esc</kbd> 패널 닫기 &nbsp; <kbd>1</kbd>–<kbd>6</kbd> 프리셋
+    </div>
+  </details>
+</aside>
+
+<div class="sr" id="live" aria-live="polite" aria-atomic="true"></div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════
+   ① 상태 & 기본값
+   ══════════════════════════════════════════════════════════════ */
+const PRESETS = [1, 3, 5, 10, 15, 25];      // 분
+const CIRC = 2 * Math.PI * 45;              // 게이지 원주 ≈ 282.743
+const LS = "focusTimer.";
+
+/* 단계 색상. 밝은/어두운 테마 모두에서 읽히는 중간 톤만 골랐고,
+   경고색(주황·빨강)과 헷갈리는 색은 넣지 않았다. 0번은 기본 강조색. */
+const PALETTE = [
+  { name: "기본", css: "" },
+  { name: "파랑", css: "#3b82f6" },
+  { name: "초록", css: "#10b981" },
+  { name: "청록", css: "#06b6d4" },
+  { name: "보라", css: "#8b5cf6" },
+  { name: "분홍", css: "#ec4899" }
+];
+const stepColor = i => PALETTE[i] ? PALETTE[i].css : "";
+
+/* 테마별 기본 강조색·배경색. CSS 의 --accent / --bg 와 같은 값을 유지해야 한다
+   (색상 선택기의 초기값과 명암비 계산에 쓰인다) */
+const THEME_COLORS = {
+  light: { accent: "#2563eb", bg: "#f3f5f8" },
+  dark:  { accent: "#5b93ff", bg: "#0d1016" }
+};
+const isHex = v => /^#[0-9a-fA-F]{6}$/.test(String(v || ""));
+
+/* WCAG 상대 휘도 → 명암비. 큰 글자는 3:1 이상이면 읽을 수 있다.
+   프로젝터에서 흐린 색을 골라 숫자가 안 보이는 사고를 미리 알려주기 위해 쓴다. */
+function luminance(hex){
+  const ch = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+function contrastRatio(a, b){
+  if(!isHex(a) || !isHex(b)) return 0;
+  const l1 = luminance(a), l2 = luminance(b);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+/* 표시 방식. M 키가 이 순서로 순환한다 */
+const DISPLAYS = ["ring", "disk", "number"];
+const DISPLAY_NAMES = { ring: "링 + 숫자", disk: "원판 + 숫자", number: "숫자만" };
+
+/* 설정 패널의 접이식 구획. 여닫은 상태를 그대로 저장한다 */
+const SEC_IDS = ["secQuick", "secSteps", "secPomo", "secDisp", "secKeys"];
+
+/* 원판 부채꼴 — viewBox 0 0 100 100, 중심 50,50. 12시에서 시계방향으로 deg 만큼.
+   남은 시간이 줄면 12시 쪽으로 수축한다 (교실용 타임타이머와 같은 방향) */
+const SEC_R = 38.5;
+const polar = (deg, r) => {
+  const a = (deg - 90) * Math.PI / 180;
+  return [50 + r * Math.cos(a), 50 + r * Math.sin(a)];
+};
+function sectorPath(deg){
+  if(!(deg > 0.05)) return "";
+  // 360°는 호가 시작점=끝점이 되어 그려지지 않으므로 원 두 개로 나눠 그린다
+  if(deg >= 359.95) return `M 50 ${50-SEC_R} A ${SEC_R} ${SEC_R} 0 1 1 49.99 ${50-SEC_R} Z`;
+  const [x1, y1] = polar(0, SEC_R), [x2, y2] = polar(deg, SEC_R);
+  return `M 50 50 L ${x1.toFixed(2)} ${y1.toFixed(2)} `
+       + `A ${SEC_R} ${SEC_R} 0 ${deg > 180 ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+}
+/* 눈금 60개(5개마다 큰 눈금). 한 바퀴 = 그 단계 전체 시간이므로 숫자는 붙이지 않는다 */
+function buildTicks(){
+  let out = "";
+  for(let i = 0; i < 60; i++){
+    const maj = i % 5 === 0;
+    const [x1, y1] = polar(i * 6, 46);
+    const [x2, y2] = polar(i * 6, maj ? 40 : 42.5);
+    out += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"`
+         + ` stroke-width="${maj ? 1.1 : .5}" opacity="${maj ? .8 : .4}"/>`;
+  }
+  return out;
+}
+
+const state = {
+  queue: [],            // [{name, ms, kind}]  — 프리셋/스텝/뽀모도로 모두 이 큐로 실행
+  index: 0,
+  status: "idle",       // idle | running | paused | finished
+  remainingMs: 0,
+  endsAt: null,         // 절대 마감시각 (running 일 때만)
+  totalMs: 0,           // 현재 단계 전체 길이 (게이지 기준)
+  absoluteEnd: null,    // 정각 종료 모드의 목표 시각. 있으면 벽시계 기준으로 동작한다
+  overrunFrom: null,    // 계획된 종료 시각. 있으면 남은 시간 대신 초과 시간(+MM:SS)을 센다
+  settings: { theme:"light", display:"ring", sound:true, volume:0.6, autoAdvance:true,
+              panelOpen:false, preWarn:true, overrun:true, showClock:true,
+              baseColor:"",     // "" = 테마 기본 강조색을 그대로 쓴다
+              openSecs:["secQuick"] },   // 펼쳐 둔 설정 구획. 나머지는 제목만 보인다
+  pomodoro: { focusMin:25, breakMin:5, longBreakMin:15, totalRounds:4, roundsPerLongBreak:4 },
+  stepList: [ {name:"도입", minutes:5, color:0}, {name:"모둠 활동", minutes:15, color:2},
+              {name:"발표·정리", minutes:10, color:4} ],
+  templates: [],        // [{name, steps:[{name, minutes}]}] — 수업별 단계 구성 보관
+  activeTemplate: ""    // 마지막으로 불러온/저장한 템플릿 이름 (선택 상태 표시용)
+};
+
+const $ = id => document.getElementById(id);
+
+/* ══════════════════════════════════════════════════════════════
+   ② 저장 / 복원
+   ══════════════════════════════════════════════════════════════ */
+/* 저장된 값은 신뢰하지 않는다 — 손상된 항목이 총 시간 계산이나 큐 생성을 깨뜨리지 않게 정리한다 */
+function sanitizeSteps(arr){
+  if(!Array.isArray(arr)) return null;
+  const out = arr
+    .filter(s => s && typeof s === "object")
+    .map(s => {
+      const c = Math.trunc(Number(s.color));
+      return {
+        name: String(s.name == null ? "" : s.name).slice(0, 60),
+        minutes: Math.min(600, Math.max(0, Number(s.minutes) || 0)),
+        color: Number.isFinite(c) && c > 0 && c < PALETTE.length ? c : 0
+      };
+    });
+  return out.length ? out : null;
+}
+function sanitizeTemplates(arr){
+  if(!Array.isArray(arr)) return [];
+  const seen = new Set();
+  return arr
+    .filter(t => t && typeof t === "object")
+    .map(t => ({ name: String(t.name == null ? "" : t.name).trim().slice(0, 40), steps: sanitizeSteps(t.steps) }))
+    .filter(t => {
+      if(!t.name || !t.steps || seen.has(t.name)) return false;
+      seen.add(t.name); return true;
+    })
+    .slice(0, 50);
+}
+const cloneSteps = arr => arr.map(s => ({ name: s.name, minutes: s.minutes, color: Number(s.color) || 0 }));
+
+function save(){
+  try{
+    localStorage.setItem(LS+"settings",  JSON.stringify(state.settings));
+    localStorage.setItem(LS+"pomodoro",  JSON.stringify(state.pomodoro));
+    localStorage.setItem(LS+"steps",     JSON.stringify(state.stepList));
+    localStorage.setItem(LS+"templates", JSON.stringify(state.templates));
+    localStorage.setItem(LS+"active",    state.activeTemplate);
+  }catch(e){ /* 사생활 보호 모드 등 — 저장 실패는 무시하고 계속 동작 */ }
+}
+function load(){
+  // 병합과 별개로 파싱된 원본을 돌려준다 — 이전(migration) 판단은 저장값 자체를 봐야 한다
+  const read = (key, into) => {
+    try{
+      const raw = localStorage.getItem(LS+key);
+      if(!raw) return null;
+      const val = JSON.parse(raw);
+      if(val && typeof val === "object" && !Array.isArray(into)) Object.assign(into, val);
+      return val;
+    }catch(e){ return null; /* 손상된 값은 조용히 무시 */ }
+  };
+  const saved = read("settings", state.settings);
+  read("pomodoro", state.pomodoro);
+  /* 예전 버전의 '숫자만 보기' 토글을 표시 방식으로 옮긴다.
+     병합 후의 state.settings.display 는 이미 기본값 "ring" 이라 유효해 보이므로,
+     반드시 저장된 객체(saved)에 display 가 있었는지로 판단해야 한다. */
+  if(saved && DISPLAYS.indexOf(saved.display) < 0){
+    state.settings.display = saved.minimal ? "number" : "ring";
+  }else if(DISPLAYS.indexOf(state.settings.display) < 0){
+    state.settings.display = "ring";
+  }
+  delete state.settings.minimal;
+  if(!isHex(state.settings.baseColor)) state.settings.baseColor = "";   // 손상된 값은 테마 기본값으로
+  state.settings.openSecs = Array.isArray(state.settings.openSecs)
+    ? SEC_IDS.filter(id => state.settings.openSecs.indexOf(id) >= 0)    // 모르는 id 는 버린다
+    : ["secQuick"];
+  const steps = sanitizeSteps(read("steps", []));
+  if(steps) state.stepList = steps;
+  state.templates = sanitizeTemplates(read("templates", []));
+  try{ state.activeTemplate = localStorage.getItem(LS+"active") || ""; }catch(e){}
+  if(!state.templates.some(t => t.name === state.activeTemplate)) state.activeTemplate = "";
+
+  // 테마 기본값: 저장된 값이 없으면 OS 설정을 따른다
+  if(!localStorage.getItem(LS+"settings") &&
+     window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches){
+    state.settings.theme = "dark";
+  }
+}
+
+/* ── 수업 템플릿 ────────────────────────────────────────────── */
+const findTemplate = name => state.templates.find(t => t.name === name);
+
+// 반환값: 'saved' | 'updated' | 'noname' | 'empty' | 'full'
+function saveTemplate(rawName){
+  const name = String(rawName || "").trim().slice(0, 40);
+  if(!name) return "noname";
+  if(!state.stepList.some(s => Number(s.minutes) > 0)) return "empty";
+  const existing = findTemplate(name);
+  if(existing){
+    existing.steps = cloneSteps(state.stepList);
+  }else{
+    if(state.templates.length >= 50) return "full";
+    state.templates.push({ name, steps: cloneSteps(state.stepList) });
+    state.templates.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }
+  state.activeTemplate = name;
+  save();
+  return existing ? "updated" : "saved";
+}
+function applyTemplate(name){
+  const t = findTemplate(name);
+  if(!t) return false;
+  state.stepList = cloneSteps(t.steps);
+  state.activeTemplate = t.name;
+  save();
+  return true;
+}
+function deleteTemplate(name){
+  const i = state.templates.findIndex(t => t.name === name);
+  if(i < 0) return false;
+  state.templates.splice(i, 1);
+  if(state.activeTemplate === name) state.activeTemplate = "";
+  save();
+  return true;
+}
+
+/* ── 템플릿 파일 내보내기 / 가져오기 ───────────────────────── */
+const EXPORT_LIMIT = 1024 * 1024;   // 1MB — 실수로 큰 파일을 고르면 읽지 않는다
+
+function templatesToJSON(){
+  return JSON.stringify({
+    app: "focus-timer", version: 1,
+    exportedAt: new Date().toISOString(),
+    templates: state.templates
+  }, null, 2);
+}
+function exportTemplates(){
+  if(!state.templates.length) return false;
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+  const blob = new Blob([templatesToJSON()], { type: "application/json" });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = `수업타이머-템플릿-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+  return true;
+}
+
+/* 겹치지 않는 이름을 찾는다: "실험" → "실험 (2)" → "실험 (3)" … */
+function uniqueTemplateName(name){
+  if(!findTemplate(name)) return name;
+  for(let n = 2; n <= 99; n++){
+    const candidate = `${name} (${n})`.slice(0, 40);
+    if(!findTemplate(candidate)) return candidate;
+  }
+  return null;
+}
+/* 기존 템플릿을 지우지 않고 합친다. 이름이 겹치면 번호를 붙인다. */
+function importTemplates(text){
+  let parsed;
+  try{ parsed = JSON.parse(text); }catch(e){ return { code: "badjson" }; }
+  const raw = Array.isArray(parsed) ? parsed : (parsed && parsed.templates);
+  const incoming = sanitizeTemplates(raw);
+  if(!incoming.length) return { code: "none" };
+
+  let added = 0, renamed = 0, skipped = 0;
+  incoming.forEach(t => {
+    if(state.templates.length >= 50){ skipped++; return; }
+    const name = uniqueTemplateName(t.name);
+    if(!name){ skipped++; return; }
+    if(name !== t.name) renamed++;
+    state.templates.push({ name, steps: cloneSteps(t.steps) });
+    added++;
+  });
+  state.templates.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  save();
+  return { code: "ok", added, renamed, skipped };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ③ 오디오 — 파일 없이 WebAudio 로 차임 생성
+   ══════════════════════════════════════════════════════════════ */
+let actx = null;
+function audio(){
+  try{
+    if(!actx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return null;
+      actx = new AC();
+    }
+    if(actx.state === "suspended") actx.resume();
+    return actx;
+  }catch(e){ return null; }
+}
+function beep(freq, delay, dur, vol){
+  const c = audio(); if(!c) return;
+  const osc = c.createOscillator(), gain = c.createGain();
+  const t = c.currentTime + delay;
+  osc.type = "sine"; osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.linearRampToValueAtTime(vol, t + 0.02);          // 램프로 클릭음 제거
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain); gain.connect(c.destination);
+  osc.start(t); osc.stop(t + dur + 0.05);
+}
+function chime(kind){
+  if(!state.settings.sound) return;
+  const v = Math.max(0.001, state.settings.volume * 0.32);
+  // 예고음은 종료음과 헷갈리지 않도록 낮은 같은 음을 두 번, 더 작고 짧게 낸다
+  if(kind === "pre"){
+    [0, 0.16].forEach(t => beep(587.33, t, 0.14, v * 0.55));
+    return;
+  }
+  const notes = kind === "final" ? [523.25, 659.25, 783.99, 1046.50] : [880, 1108.73, 1318.51];
+  notes.forEach((f, i) => beep(f, i * 0.17, kind === "final" ? 0.55 : 0.36, v));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ④ 화면 꺼짐 방지 (프로젝터 절전 차단)
+   ══════════════════════════════════════════════════════════════ */
+let wakeLock = null;
+async function acquireWake(){
+  try{ if("wakeLock" in navigator && !wakeLock){
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  }}catch(e){ /* 미지원·거부 시 무시 */ }
+}
+function releaseWake(){
+  try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑤ 엔진 — 마감시각 기반, 큐를 순서대로 실행
+   ══════════════════════════════════════════════════════════════ */
+let tickId = null;
+let preWarned = false;             // 이번 단계에서 30초 예고음을 이미 울렸는가
+const startTick = () => { stopTick(); tickId = setInterval(tick, 200); };
+const stopTick  = () => { if(tickId){ clearInterval(tickId); tickId = null; } };
+
+function armStep(i){
+  state.index = i;
+  const s = state.queue[i];
+  state.totalMs = state.remainingMs = s ? s.ms : 0;
+  state.endsAt = null;
+  state.overrunFrom = null; preWarned = false;
+  // 정각 종료 모드는 벽시계 기준이므로, 되감을 때도 목표 시각까지 다시 계산한다
+  if(state.absoluteEnd) state.remainingMs = Math.max(0, state.absoluteEnd - Date.now());
+}
+function loadQueue(queue, autoStart){
+  if(!queue.length) return;
+  stopTick(); releaseWake();
+  state.queue = queue; state.status = "idle"; noteOverride = "";
+  state.absoluteEnd = null;          // 정각 모드는 runUntil() 이 다시 켠다
+  armStep(0);
+  autoStart ? start() : render();
+}
+function start(){
+  state.overrunFrom = null;          // 어떤 조작이든 초과 시간 표시를 끝낸다
+  if(state.status === "finished") armStep(0);
+  if(state.absoluteEnd){
+    state.remainingMs = Math.max(0, state.absoluteEnd - Date.now());
+    if(state.remainingMs <= 0){
+      // "다시 시작" 이 조용히 아무 일도 안 하는 상황을 막는다
+      noteOverride = "지정한 종료 시각이 지났습니다 — 새 시각을 입력하세요";
+      render(); return;
+    }
+  }
+  if(!state.queue.length || state.remainingMs <= 0) return;
+  noteOverride = "";
+  // 정각 모드에서는 목표 시각이 곧 마감시각이다 — 일시정지해도 벽시계는 멈추지 않으므로
+  // 재개 시 목표 시각으로 되돌아간다.
+  state.endsAt = state.absoluteEnd || (Date.now() + state.remainingMs);
+  state.status = "running";
+  startTick(); acquireWake(); render();
+}
+
+/* 특정 시각까지 재는 타이머. target: Date */
+function runUntil(target){
+  const ms = target.getTime() - Date.now();
+  if(!(ms > 0)) return false;
+  const label = `${String(target.getHours()).padStart(2,"0")}:${String(target.getMinutes()).padStart(2,"0")} 까지`;
+  loadQueue([{ name: label, ms, kind: "focus" }], false);
+  state.absoluteEnd = target.getTime();
+  start();
+  return true;
+}
+/* "10:50" → 오늘의 그 시각. 이미 지났으면 null (자정을 넘겨 24시간 타이머가 되는 사고를 막는다) */
+function parseClock(text){
+  const m = /^\s*(\d{1,2})\s*:\s*(\d{2})\s*$/.exec(String(text || ""));
+  if(!m) return null;
+  const h = Number(m[1]), min = Number(m[2]);
+  if(h > 23 || min > 59) return null;
+  const d = new Date(); d.setHours(h, min, 0, 0);
+  return d.getTime() > Date.now() ? d : null;
+}
+function pause(){
+  if(state.status !== "running") return;
+  state.remainingMs = Math.max(0, state.endsAt - Date.now());
+  state.endsAt = null; state.status = "paused";
+  stopTick(); releaseWake(); render();
+}
+const toggle = () => state.status === "running" ? pause() : start();
+
+function reset(){
+  stopTick(); releaseWake();
+  state.status = "idle"; noteOverride = "";
+  armStep(0); render();
+}
+/* 실행 중 초기화는 한 번 확인한다 — 교실에서 R 이 잘못 눌리면 진행 중인 활동이 그대로 날아간다.
+   마감시각 기준이므로 confirm 이 스레드를 붙잡고 있는 동안에도 시간은 정확히 흐른다. */
+function guardedReset(){
+  if(state.status === "running" && state.remainingMs > 3000 &&
+     !confirm(`실행 중입니다. 초기화하면 남은 ${fmt(state.remainingMs)} 이 사라집니다.\n계속할까요?`)) return;
+  reset();
+}
+function next(){
+  if(state.index >= state.queue.length - 1){ finish(); return; }
+  const wasRunning = state.status === "running";
+  stopTick();
+  armStep(state.index + 1);
+  wasRunning ? start() : render();
+}
+function finish(){
+  stopTick(); releaseWake();
+  state.status = "finished";
+  state.remainingMs = 0; state.endsAt = null;
+  noteOverride = "모든 단계가 끝났습니다";
+  render();
+}
+
+/* 계획된 종료 시각 이후로 흐른 시간을 세기 시작한다.
+   수업이 밀렸을 때 얼마나 넘겼는지 보이면 다음 단계를 줄일 판단이 선다. */
+function beginOverrun(plannedEnd){
+  if(!state.settings.overrun) return;
+  state.overrunFrom = plannedEnd || Date.now();
+  startTick();                  // 초과 시간을 계속 갱신하려면 틱이 살아 있어야 한다
+  render();
+}
+
+function tick(){
+  if(state.overrunFrom){ render(); return; }     // 초과 시간 표시 갱신
+  if(state.status !== "running") return;
+  state.remainingMs = Math.max(0, state.endsAt - Date.now());
+  if(state.remainingMs <= 0){ onStepEnd(); return; }
+  // 종료 30초 전 예고음 — 단계당 한 번만, 너무 짧은 단계에서는 울리지 않는다
+  if(!preWarned && state.settings.preWarn && state.totalMs > 45000 && state.remainingMs <= 30000){
+    preWarned = true;
+    chime("pre");
+  }
+  render();
+}
+function onStepEnd(){
+  const plannedEnd = state.endsAt;   // 다음 단계 기준점 — 단계 간 드리프트를 없앤다
+  stopTick();
+  state.remainingMs = 0; state.endsAt = null;
+
+  const isLast = state.index >= state.queue.length - 1;
+  chime(isLast ? "final" : "step");
+  flash();
+
+  if(isLast){ finish(); beginOverrun(plannedEnd); return; }
+
+  if(state.settings.autoAdvance){
+    armStep(state.index + 1);
+    state.endsAt = plannedEnd + state.remainingMs;
+    state.status = "running";
+    startTick(); render();
+  }else{
+    releaseWake();
+    armStep(state.index + 1);
+    state.status = "paused";
+    noteOverride = "다음 단계 준비됨 — 시작을 누르세요";
+    render();
+    beginOverrun(plannedEnd);      // 전환에 걸린 시간도 보여준다
+  }
+}
+
+let flashTimer = null;
+function flash(){
+  const el = $("flash");
+  el.classList.remove("on");
+  void el.offsetWidth;                       // 애니메이션 재시작 강제
+  el.classList.add("on");
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => el.classList.remove("on"), 1600);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑥ 큐 생성 — 프리셋 / 스텝 / 뽀모도로
+   ══════════════════════════════════════════════════════════════ */
+/* "직접 입력" 칸의 문자열을 밀리초로 바꾼다. 못 읽으면 null 을 돌려주고, 호출한 쪽이 안내한다.
+     "5"    → 5분      숫자만 쓰면 분으로 읽는다. 분만 넣던 예전 습관이 그대로 통해야 한다
+     "5:30" → 5분 30초
+     ":45"  → 45초     분을 비워도 된다
+   전각 숫자·전각 콜론은 한글 입력기에서 흔히 섞여 들어오므로 반각으로 바꿔 받는다. */
+const MAX_MIN = 600;
+/* 틀린 이유를 나눠 돌려준다 — 안내 문구를 상황에 맞게 고를 수 있어야 짧게 쓸 수 있다.
+   성공 { ms } / 실패 { bad:"format" | "zero" | "range" } */
+function durationParts(text){
+  const s = String(text == null ? "" : text)
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/：/g, ":")
+    .replace(/\s+/g, "");
+  if(!s) return { bad:"format" };
+  let ms;
+  const m = /^(\d*):(\d{1,2})$/.exec(s);
+  if(m){
+    const sec = Number(m[2]);
+    if(sec > 59) return { bad:"format" };           // "5:70" 은 형식 오타로 본다
+    ms = ((m[1] === "" ? 0 : Number(m[1])) * 60 + sec) * 1000;
+  }else if(/^\d+$/.test(s)){
+    ms = Number(s) * 60000;
+  }else{
+    return { bad:"format" };
+  }
+  if(ms <= 0) return { bad:"zero" };
+  if(ms > MAX_MIN * 60000) return { bad:"range" };
+  return { ms };
+}
+/* 값만 필요한 곳을 위한 얇은 겉면 */
+function parseDuration(text){
+  const p = durationParts(text);
+  return p.ms === undefined ? null : p.ms;
+}
+/* 길이를 사람이 읽는 말로. 초가 0이면 "5분" 이라 예전 표기와 같고,
+   1분 미만이면 "45초" 가 된다 — 분으로 반올림하면 "0분" 이 나와 버린다. */
+function durationLabel(ms){
+  const total = Math.round(ms / 1000), m = Math.floor(total / 60), s = total % 60;
+  return m && s ? `${m}분 ${s}초` : m ? `${m}분` : `${s}초`;
+}
+/* 초가 0이면 "5분 집중" — 프리셋 이름과 형식이 같아야 한다 */
+const durationName = ms => durationLabel(ms) + " 집중";
+/* "약 25분" 처럼 어림수로 알리는 자리용. 초까지 붙이면 "약" 과 어긋나 오히려 읽기 나쁘다.
+   1분 미만일 때만 초로 내려간다 — 반올림하면 "약 0분" 이 되기 때문이다. */
+const roughLabel = ms => ms < 60000 ? durationLabel(ms) : Math.round(ms / 60000) + "분";
+const durationQueue = ms => [{ name: durationName(ms), ms, kind: "focus" }];
+const presetQueue = min => durationQueue(min * 60000);
+
+function stepQueue(){
+  return state.stepList
+    .filter(s => Number(s.minutes) > 0)
+    .map(s => ({ name: (s.name || "").trim() || "활동", ms: Math.round(s.minutes * 60000),
+                 kind: "focus", color: Number(s.color) || 0 }));
+}
+/* 단계 목록을 목표 시각까지 남은 시간에 비율대로 압축한다.
+   `stepList` 는 건드리지 않는다 — 교사의 원래 수업 계획은 그대로 남아야 한다. */
+function fitStepsTo(target){
+  const base = stepQueue();
+  if(!base.length) return { code: "empty" };
+  const avail = target.getTime() - Date.now();
+  if(avail <= 0) return { code: "past" };
+
+  const planned = base.reduce((a, s) => a + s.ms, 0);
+  // 누적값을 반올림해 차이를 배분한다 — 각 단계를 따로 반올림하면 합계가 목표에서 어긋난다
+  let prefix = 0, done = 0;
+  const q = base.map((s, i) => {
+    prefix += s.ms;
+    const cum = i === base.length - 1 ? avail : Math.round(avail * prefix / planned);
+    const ms = cum - done;
+    done = cum;
+    return { name: s.name, ms, kind: s.kind, color: s.color };
+  });
+  if(q.some(s => s.ms < 5000)) return { code: "tooshort" };
+
+  loadQueue(q, true);
+  return { code: "ok", planned, avail, factor: avail / planned };
+}
+
+function pomodoroQueue(){
+  const p = state.pomodoro, q = [];
+  for(let i = 1; i <= p.totalRounds; i++){
+    q.push({ name: `집중 ${i}/${p.totalRounds}`, ms: p.focusMin * 60000, kind: "focus" });
+    const isLong = i % p.roundsPerLongBreak === 0;
+    q.push({
+      name: isLong ? "긴 휴식" : "휴식",
+      ms: (isLong ? p.longBreakMin : p.breakMin) * 60000,
+      kind: isLong ? "longBreak" : "break"
+    });
+  }
+  return q;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑦ 렌더
+   ══════════════════════════════════════════════════════════════ */
+let noteOverride = "";
+let lastTime = "", lastMinute = -1, lastStepColor = "", lastSectorDeg = -1;
+
+/* down=true(카운트다운): 올림 — 5분 시작 시 04:59 로 보이지 않게.
+   down=false(카운트업):   내림 — 시작 직후 +0:01 로 튀지 않게. */
+function fmt(ms, down = true){
+  const t = down ? Math.ceil(ms / 1000) : Math.floor(ms / 1000);
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function render(){
+  const st = state, cur = st.queue[st.index];
+
+  // 시간 텍스트 — 초과 중이면 남은 시간 대신 +경과 시간을 센다
+  const overMs = st.overrunFrom ? Math.max(0, Date.now() - st.overrunFrom) : 0;
+  const txt = st.overrunFrom ? "+" + fmt(overMs, false) : fmt(st.remainingMs);
+  const timeEl = $("time");
+  if(txt !== lastTime){
+    timeEl.textContent = txt;
+    timeEl.classList.toggle("long", txt.replace("+", "").length > 5);
+    lastTime = txt;
+  }
+  const title = `${txt} · ${cur ? cur.name : "타이머"}`;
+  if(document.title !== title) document.title = title;
+
+  // 게이지 — 링과 원판이 같은 비율을 쓴다
+  const ratio = st.overrunFrom ? 0 : (st.totalMs > 0 ? st.remainingMs / st.totalMs : 0);
+  if(st.settings.display === "ring"){
+    $("bar").setAttribute("stroke-dashoffset", (CIRC * (1 - ratio)).toFixed(2));
+  }else if(st.settings.display === "disk"){
+    // 0.5° 단위로만 다시 그린다 (200ms 마다 경로를 새로 만들 필요가 없다)
+    const deg = Math.round(ratio * 720) / 2;
+    if(deg !== lastSectorDeg){
+      $("diskSector").setAttribute("d", sectorPath(deg));
+      lastSectorDeg = deg;
+    }
+  }
+
+  // 경고 단계 ("over" 는 빨간색이지만 맥박 애니메이션은 없다 — 오래 켜져 있을 수 있으므로)
+  const live = st.status === "running" || st.status === "paused";
+  document.body.dataset.warn =
+    st.overrunFrom ? "over" :
+    !live || st.remainingMs <= 0 ? "" :
+    st.remainingMs <= 10000 ? "danger" :
+    st.remainingMs <= 60000 ? "warn" : "";
+
+  // 단계명 / 카운터 / 안내
+  $("stepName").textContent = cur ? cur.name : "타이머";
+  $("counter").textContent = st.queue.length > 1 ? `${st.index + 1} / ${st.queue.length}` : "";
+  const nxt = st.queue[st.index + 1];
+  $("note").textContent = noteOverride ||
+    (st.status === "finished" ? "모든 단계가 끝났습니다" :
+     nxt ? `다음: ${nxt.name} · ${durationLabel(nxt.ms)}` : "");
+
+  // 버튼 상태
+  $("startBtn").textContent = st.status === "running" ? "일시정지" :
+                              st.status === "finished" ? "다시 시작" : "시작";
+  $("nextBtn").disabled = st.index >= st.queue.length - 1 && st.status === "finished";
+  document.querySelectorAll("#presets button, #customBtn, #untilBtn, #runSteps, #runPomo, #fitBtn")
+    .forEach(b => { b.disabled = st.status === "running"; });
+
+  // 스크린리더 — 분 단위로만 알린다 (매초 읽으면 방해가 된다)
+  const min = Math.ceil(st.remainingMs / 60000);
+  if(st.status === "running" && min !== lastMinute){
+    lastMinute = min;
+    $("live").textContent = `남은 시간 약 ${min}분`;
+  }
+
+  // 실행 중인 스텝 행 강조
+  document.querySelectorAll(".step").forEach((el, i) => {
+    el.classList.toggle("active", st.queue.length > 1 && i === st.index && live);
+  });
+
+  // 단계 색상 — 경고 상태에서는 CSS 특정성이 이 값을 덮는다 (경고를 가리지 않는다)
+  const col = cur ? stepColor(cur.color) : "";
+  if(col !== lastStepColor){
+    col ? document.body.style.setProperty("--step", col)
+        : document.body.style.removeProperty("--step");
+    lastStepColor = col;
+  }
+
+  renderClock();
+}
+
+/* ── 현재 시각 / 종료 예정 시각 ─────────────────────────────── */
+const hhmm = d => `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+
+/* 남은 단계를 모두 더한 예상 종료 시각. 대기·초과·종료 상태에서는 의미가 없어 null */
+function projectedEnd(){
+  const st = state;
+  if(st.overrunFrom || st.status === "finished" || !st.queue.length) return null;
+  let ms = st.remainingMs;
+  for(let i = st.index + 1; i < st.queue.length; i++) ms += st.queue[i].ms;
+  return ms > 0 ? new Date(Date.now() + ms) : null;
+}
+function renderClock(){
+  const el = $("wallClock");
+  if(!state.settings.showClock){ if(el.textContent) el.textContent = ""; return; }
+  let txt = `지금 ${hhmm(new Date())}`;
+  const end = projectedEnd();
+  if(end) txt += `　·　${state.queue.length > 1 ? "전체 " : ""}종료 ${hhmm(end)} 예정`;
+  if(el.textContent !== txt) el.textContent = txt;
+}
+
+/* ── 스텝 목록 UI ───────────────────────────────────────────── */
+function renderSteps(){
+  const wrap = $("stepRows");
+  wrap.innerHTML = "";
+  state.stepList.forEach((s, i) => {
+    const ci = Number(s.color) || 0;
+    // '기본' 견본은 사용자가 고른 기본 색상을 그대로 보여준다
+    const swatch = stepColor(ci) || "var(--base, var(--accent))";
+    const row = document.createElement("div");
+    row.className = "step";
+    row.innerHTML =
+      `<input type="text" value="" data-i="${i}" data-f="name" aria-label="${i+1}번째 단계 이름">` +
+      `<input type="number" min="0" max="600" step="1" value="${s.minutes}" data-i="${i}" data-f="minutes" aria-label="${i+1}번째 단계 분">` +
+      `<button class="swatch" data-act="color" data-i="${i}" style="background:${swatch}"` +
+        ` title="색상: ${PALETTE[ci].name} (클릭하면 바뀝니다)"` +
+        ` aria-label="${i+1}번째 단계 색상: ${PALETTE[ci].name}. 누르면 다음 색으로 바뀝니다"></button>` +
+      `<span class="mini">` +
+        `<button data-act="up" data-i="${i}" title="위로" aria-label="위로">↑</button>` +
+        `<button data-act="down" data-i="${i}" title="아래로" aria-label="아래로">↓</button>` +
+        `<button data-act="del" data-i="${i}" title="삭제" aria-label="삭제">✕</button>` +
+      `</span>`;
+    row.querySelector('[data-f="name"]').value = s.name;   // 사용자 입력은 속성 대입으로 (HTML 이스케이프 불필요)
+    wrap.appendChild(row);
+  });
+  updateStepTotal();
+}
+
+/* 현재 단계 목록이 불러온 템플릿과 달라졌는가 */
+function templateDirty(){
+  const t = findTemplate(state.activeTemplate);
+  if(!t || t.steps.length !== state.stepList.length) return !!t;
+  return t.steps.some((s, i) =>
+    s.name !== state.stepList[i].name || Number(s.minutes) !== Number(state.stepList[i].minutes));
+}
+function updateStepTotal(){
+  const total = state.stepList.reduce((a, s) => a + (Number(s.minutes) || 0), 0);
+  $("stepTotal").textContent = `총 ${state.stepList.length}단계 · ${total}분`
+    + (templateDirty() ? ` · '${state.activeTemplate}' 에서 수정됨` : "");
+}
+
+/* ── 템플릿 목록 UI ─────────────────────────────────────────── */
+function renderTemplates(){
+  const sel = $("tplSelect");
+  sel.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = state.templates.length
+    ? `저장된 템플릿 ${state.templates.length}개 — 선택하면 불러옵니다`
+    : "저장된 템플릿 없음";
+  sel.appendChild(ph);
+  state.templates.forEach(t => {
+    const o = document.createElement("option");
+    const mins = t.steps.reduce((a, s) => a + (Number(s.minutes) || 0), 0);
+    o.value = t.name;
+    o.textContent = `${t.name} · ${t.steps.length}단계 ${mins}분`;
+    sel.appendChild(o);
+  });
+  sel.value = state.activeTemplate;
+  $("tplDel").disabled = !state.activeTemplate;
+}
+let tplMsgTimer = null;
+function tplMsg(text){
+  $("tplMsg").textContent = text;
+  clearTimeout(tplMsgTimer);
+  tplMsgTimer = setTimeout(() => { $("tplMsg").textContent = ""; }, 3500);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑧ 설정 반영
+   ══════════════════════════════════════════════════════════════ */
+function applySettings(){
+  const s = state.settings;
+  document.documentElement.dataset.theme = s.theme;
+  document.documentElement.dataset.display = s.display;
+  document.documentElement.dataset.panel = s.panelOpen ? "open" : "closed";
+  $("panelBtn").setAttribute("aria-expanded", String(s.panelOpen));
+  $("dispSel").value = s.display;
+  applyBaseColor();
+  $("soundChk").checked = s.sound;
+  $("preWarnChk").checked = s.preWarn;
+  $("overrunChk").checked = s.overrun;
+  $("clockChk").checked = s.showClock;
+  $("vol").value = s.volume;
+  $("autoAdv").checked = s.autoAdvance;
+  SEC_IDS.forEach(id => {
+    const el = $(id);
+    if(el) el.open = s.openSecs.indexOf(id) >= 0;
+  });
+}
+/* 기본 타이머 색상 적용 + 명암비 안내.
+   경고색은 [data-warn] 규칙이 특정성으로 이기므로 여기서 신경 쓸 필요가 없다. */
+function applyBaseColor(){
+  const s = state.settings;
+  const theme = THEME_COLORS[s.theme] || THEME_COLORS.light;
+  if(isHex(s.baseColor)) document.body.style.setProperty("--base", s.baseColor);
+  else                   document.body.style.removeProperty("--base");
+
+  const effective = isHex(s.baseColor) ? s.baseColor : theme.accent;
+  $("baseColor").value = effective;
+
+  const ratio = contrastRatio(effective, theme.bg);
+  const msg = $("baseMsg");
+  if(!isHex(s.baseColor)){
+    msg.textContent = "테마 기본값 사용 중";
+  }else if(ratio < 3){
+    msg.textContent = `⚠ 배경과 명암비 ${ratio.toFixed(1)}:1 — 프로젝터에서 흐려 보일 수 있습니다 (3:1 이상 권장)`;
+  }else{
+    msg.textContent = `명암비 ${ratio.toFixed(1)}:1 — 잘 보입니다`;
+  }
+}
+
+function syncPomodoroInputs(){
+  const p = state.pomodoro;
+  $("pFocus").value = p.focusMin; $("pBreak").value = p.breakMin;
+  $("pLong").value = p.longBreakMin; $("pRounds").value = p.totalRounds;
+  $("pEvery").value = p.roundsPerLongBreak;
+}
+function readPomodoroInputs(){
+  const num = (el, min, max, dflt) => {
+    const v = Math.round(Number(el.value));
+    return Number.isFinite(v) && v >= min && v <= max ? v : dflt;
+  };
+  const p = state.pomodoro;
+  p.focusMin = num($("pFocus"), 1, 180, p.focusMin);
+  p.breakMin = num($("pBreak"), 1, 60, p.breakMin);
+  p.longBreakMin = num($("pLong"), 1, 90, p.longBreakMin);
+  p.totalRounds = num($("pRounds"), 1, 12, p.totalRounds);
+  p.roundsPerLongBreak = num($("pEvery"), 1, 12, p.roundsPerLongBreak);
+  syncPomodoroInputs(); save();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑨ 이벤트
+   ══════════════════════════════════════════════════════════════ */
+// 프리셋 버튼 생성
+PRESETS.forEach((m, i) => {
+  const b = document.createElement("button");
+  b.textContent = m + "분";
+  b.title = `${m}분 시작 (${i + 1})`;
+  b.onclick = () => loadQueue(presetQueue(m), true);
+  $("presets").appendChild(b);
+});
+
+$("startBtn").onclick = toggle;
+$("resetBtn").onclick = guardedReset;
+$("nextBtn").onclick  = next;
+$("fsBtn").onclick    = toggleFullscreen;
+
+/* 이 안내는 시간이 지나도 사라지지 않는다 — 고쳐야 할 입력이 아직 칸에 남아 있기 때문이다.
+   다시 입력하기 시작하면 지운다. (템플릿·정각 종료 쪽 안내는 결과 보고라서 저절로 사라진다) */
+const customMsg = text => { $("customMsg").textContent = text; };
+$("customTime").addEventListener("input", () => customMsg(""));
+const CUSTOM_HELP = {
+  format: "분 또는 분:초 (예: 5 · 5:30 · :45)",
+  zero:   "1초 이상 넣어주세요",
+  range:  `최대 ${MAX_MIN}분까지 넣을 수 있습니다`
+};
+$("customBtn").onclick = () => {
+  const p = durationParts($("customTime").value);
+  if(p.ms === undefined){ customMsg(CUSTOM_HELP[p.bad]); return; }
+  customMsg("");
+  loadQueue(durationQueue(p.ms), true);
+};
+$("customTime").addEventListener("keydown", e => { if(e.key === "Enter") $("customBtn").click(); });
+
+// 정각 종료 — 남은 시간이 아니라 끝나는 시각을 입력한다
+let untilMsgTimer = null;
+function untilMsg(text){
+  $("untilMsg").textContent = text;
+  clearTimeout(untilMsgTimer);
+  untilMsgTimer = setTimeout(() => { $("untilMsg").textContent = ""; }, 4000);
+}
+$("untilBtn").onclick = () => {
+  const raw = $("untilTime").value;
+  if(!raw){ untilMsg("종료 시각을 입력해주세요"); $("untilTime").focus(); return; }
+  const target = parseClock(raw);
+  if(!target){ untilMsg(`${raw} 은 이미 지난 시각입니다`); return; }
+  // 분으로 반올림하면 다음 분을 지정했을 때 "약 0분"이 된다 — 남은 길이를 그대로 표기한다
+  const leftMs = target.getTime() - Date.now();
+  if(leftMs > 12 * 3600000){ untilMsg("12시간 이내의 시각만 지정할 수 있습니다"); return; }
+  runUntil(target);
+  untilMsg(`${raw} 까지 약 ${roughLabel(leftMs)} — 일시정지해도 종료 시각은 그대로입니다`);
+};
+$("untilTime").addEventListener("keydown", e => { if(e.key === "Enter") $("untilBtn").click(); });
+
+$("runSteps").onclick = () => {
+  const q = stepQueue();
+  if(!q.length){ $("note").textContent = "1분 이상인 단계를 하나 이상 넣어주세요"; return; }
+  loadQueue(q, true);
+};
+$("runPomo").onclick = () => { readPomodoroInputs(); loadQueue(pomodoroQueue(), true); };
+
+// 수업 템플릿 — 선택하면 곧바로 단계 목록에 반영한다 (실행 중인 타이머는 건드리지 않는다)
+$("tplSelect").onchange = e => {
+  const name = e.target.value;
+  if(!name){ state.activeTemplate = ""; save(); renderTemplates(); return; }
+  if(applyTemplate(name)){
+    renderSteps(); renderTemplates();
+    $("tplName").value = name;
+    tplMsg(state.status === "running"
+      ? `'${name}' 불러옴 — 실행 중인 타이머는 그대로입니다`
+      : `'${name}' 불러옴 — '단계 순서대로 시작' 을 누르세요`);
+  }
+};
+$("tplSave").onclick = () => {
+  const name = $("tplName").value || state.activeTemplate;
+  const result = saveTemplate(name);
+  if(result === "noname"){ tplMsg("템플릿 이름을 입력해주세요"); $("tplName").focus(); return; }
+  if(result === "empty"){ tplMsg("1분 이상인 단계를 하나 이상 넣어주세요"); return; }
+  if(result === "full"){ tplMsg("템플릿은 최대 50개까지 저장됩니다"); return; }
+  $("tplName").value = state.activeTemplate;
+  renderTemplates();
+  tplMsg(result === "updated" ? `'${state.activeTemplate}' 덮어썼습니다` : `'${state.activeTemplate}' 저장됨`);
+};
+$("tplName").addEventListener("keydown", e => { if(e.key === "Enter") $("tplSave").click(); });
+
+// 템플릿 파일 내보내기 / 가져오기
+$("tplExport").onclick = () => {
+  if(!state.templates.length){ tplMsg("내보낼 템플릿이 없습니다"); return; }
+  exportTemplates()
+    ? tplMsg(`템플릿 ${state.templates.length}개를 파일로 저장했습니다`)
+    : tplMsg("내보내기에 실패했습니다");
+};
+$("tplImport").onclick = () => $("tplFile").click();
+$("tplFile").onchange = e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";                        // 같은 파일을 다시 골라도 change 가 오게 초기화
+  if(!file) return;
+  if(file.size > EXPORT_LIMIT){ tplMsg("파일이 너무 큽니다 (1MB 이하)"); return; }
+  const reader = new FileReader();
+  reader.onerror = () => tplMsg("파일을 읽을 수 없습니다");
+  reader.onload = () => {
+    const r = importTemplates(String(reader.result));
+    if(r.code === "badjson"){ tplMsg("템플릿 파일 형식이 아닙니다"); return; }
+    if(r.code === "none"){ tplMsg("가져올 템플릿이 없습니다"); return; }
+    renderTemplates();
+    let msg = `${r.added}개 가져왔습니다`;
+    if(r.renamed) msg += ` · 이름이 겹친 ${r.renamed}개는 번호를 붙였습니다`;
+    if(r.skipped) msg += ` · ${r.skipped}개는 50개 상한으로 건너뜀`;
+    tplMsg(msg);
+  };
+  reader.readAsText(file);
+};
+
+// 종료 시각에 맞춰 단계 압축
+let fitMsgTimer = null;
+function fitMsg(text){
+  $("fitMsg").textContent = text;
+  clearTimeout(fitMsgTimer);
+  fitMsgTimer = setTimeout(() => { $("fitMsg").textContent = ""; }, 6000);
+}
+$("fitBtn").onclick = () => {
+  const raw = $("fitTime").value;
+  if(!raw){ fitMsg("수업 종료 시각을 입력해주세요"); $("fitTime").focus(); return; }
+  const target = parseClock(raw);
+  if(!target){ fitMsg(`${raw} 은 이미 지난 시각입니다`); return; }
+  const r = fitStepsTo(target);
+  if(r.code === "empty"){ fitMsg("1분 이상인 단계를 하나 이상 넣어주세요"); return; }
+  if(r.code === "past"){ fitMsg("이미 지난 시각입니다"); return; }
+  if(r.code === "tooshort"){ fitMsg("남은 시간이 너무 짧아 단계를 나눌 수 없습니다"); return; }
+  const pct = Math.round(r.factor * 100);
+  fitMsg(`계획 ${durationLabel(r.planned)} → ${durationLabel(r.avail)} (${pct}%) 로 압축`
+       + " · 단계 목록 원본은 그대로입니다");
+};
+$("fitTime").addEventListener("keydown", e => { if(e.key === "Enter") $("fitBtn").click(); });
+$("tplDel").onclick = () => {
+  const name = state.activeTemplate;
+  if(!name) return;
+  if(!confirm(`'${name}' 템플릿을 삭제할까요?\n(현재 단계 목록은 그대로 남습니다)`)) return;
+  deleteTemplate(name);
+  $("tplName").value = "";
+  renderTemplates();
+  tplMsg(`'${name}' 삭제됨`);
+};
+
+// 스텝 목록 — 이벤트 위임
+$("stepRows").addEventListener("input", e => {
+  const t = e.target, i = Number(t.dataset.i);
+  if(!t.dataset.f || !state.stepList[i]) return;
+  if(t.dataset.f === "minutes"){
+    // input 의 max 속성은 타이핑을 막지 못하므로 여기서 직접 제한한다 (복원 시 sanitizeSteps 와 같은 범위)
+    const v = Number(t.value);
+    state.stepList[i].minutes = Number.isFinite(v) && v > 0 ? Math.min(600, v) : 0;
+  }else{
+    state.stepList[i].name = t.value;
+  }
+  updateStepTotal();
+  save();
+});
+$("stepRows").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-act]");
+  if(!btn) return;
+  const i = Number(btn.dataset.i), list = state.stepList;
+  if(btn.dataset.act === "color" && list[i]){
+    list[i].color = ((Number(list[i].color) || 0) + 1) % PALETTE.length;
+  }
+  if(btn.dataset.act === "del") list.splice(i, 1);
+  if(btn.dataset.act === "up"   && i > 0)               [list[i-1], list[i]] = [list[i], list[i-1]];
+  if(btn.dataset.act === "down" && i < list.length - 1) [list[i+1], list[i]] = [list[i], list[i+1]];
+  renderSteps(); save(); render();
+});
+$("addStep").onclick = () => {
+  state.stepList.push({ name: "새 활동", minutes: 5, color: 0 });
+  renderSteps(); save();
+  const rows = document.querySelectorAll('#stepRows [data-f="name"]');
+  rows[rows.length - 1].select();
+};
+
+// 표시 & 소리
+$("autoAdv").onchange   = e => { state.settings.autoAdvance = e.target.checked; save(); };
+$("dispSel").onchange = e => { setDisplay(e.target.value); };
+
+function setDisplay(mode){
+  if(DISPLAYS.indexOf(mode) < 0) return;
+  state.settings.display = mode;
+  lastSectorDeg = -1;              // 방식이 바뀌면 부채꼴을 강제로 다시 그린다
+  applySettings(); render(); save();
+}
+function cycleDisplay(){
+  const i = DISPLAYS.indexOf(state.settings.display);
+  setDisplay(DISPLAYS[(i + 1) % DISPLAYS.length]);
+}
+$("soundChk").onchange  = e => { state.settings.sound = e.target.checked; save(); };
+$("preWarnChk").onchange = e => { state.settings.preWarn = e.target.checked; save(); };
+$("clockChk").onchange   = e => { state.settings.showClock = e.target.checked; renderClock(); save(); };
+
+// 기본 타이머 색상 — input[type=color] 이 윈도우 색상 선택기를 띄운다
+$("baseColor").oninput = e => { setBaseColor(e.target.value); };
+$("baseReset").onclick = () => { setBaseColor(""); };
+function setBaseColor(v){
+  state.settings.baseColor = isHex(v) ? String(v).toLowerCase() : "";
+  applyBaseColor();
+  renderSteps();          // '기본' 견본 색을 새 값으로 다시 그린다
+  render(); save();
+}
+$("overrunChk").onchange = e => {
+  state.settings.overrun = e.target.checked;
+  if(!e.target.checked && state.overrunFrom){   // 끄면 즉시 표시를 걷는다
+    state.overrunFrom = null; stopTick(); render();
+  }
+  save();
+};
+$("vol").oninput        = e => { state.settings.volume = Number(e.target.value); save(); };
+$("testSound").onclick  = () => chime("step");
+$("themeBtn").onclick   = toggleTheme;
+
+$("panelBtn").onclick = togglePanel;
+["pFocus","pBreak","pLong","pRounds","pEvery"].forEach(id => { $(id).onchange = readPomodoroInputs; });
+
+/* 구획을 여닫으면 그대로 기억한다. applySettings 가 복원할 때는 값이 그대로라 저장하지 않는다 */
+SEC_IDS.forEach(id => {
+  const el = $(id);
+  if(!el) return;
+  el.addEventListener("toggle", () => {
+    const next = SEC_IDS.filter(x => x === id ? el.open : state.settings.openSecs.indexOf(x) >= 0);
+    if(next.join("|") === state.settings.openSecs.join("|")) return;
+    state.settings.openSecs = next;
+    save();
+  });
+});
+
+function togglePanel(force){
+  state.settings.panelOpen = typeof force === "boolean" ? force : !state.settings.panelOpen;
+  applySettings(); save();
+}
+function toggleTheme(){
+  state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
+  applySettings(); save();
+}
+function toggleFullscreen(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+
+/* ── 단축키 ─────────────────────────────────────────────────── */
+document.addEventListener("keydown", e => {
+  if(e.ctrlKey || e.altKey || e.metaKey) return;
+  const t = e.target;
+  if(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)){
+    if(e.key === "Escape") t.blur();
+    return;                                    // 입력 중에는 단축키를 삼킨다
+  }
+  const k = e.key.toLowerCase();
+  if(e.code === "Space" || k === " "){ e.preventDefault(); toggle(); return; }
+  if(k === "r"){ guardedReset(); return; }
+  if(k === "n"){ next(); return; }
+  if(k === "f"){ toggleFullscreen(); return; }
+  if(k === "m"){ cycleDisplay(); return; }
+  if(k === "t"){ toggleTheme(); return; }
+  if(k === "s"){ togglePanel(); return; }
+  if(e.key === "Escape"){ togglePanel(false); return; }
+  const n = Number(e.key);
+  if(n >= 1 && n <= PRESETS.length && state.status !== "running") loadQueue(presetQueue(PRESETS[n - 1]), true);
+});
+
+/* ── 유휴 시 조작 버튼 흐리기 ───────────────────────────────── */
+let idleTimer = null;
+function wake(){
+  document.body.classList.remove("dim-controls");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if(state.status === "running") document.body.classList.add("dim-controls");
+  }, 3000);
+}
+["mousemove","mousedown","keydown","touchstart"].forEach(ev =>
+  document.addEventListener(ev, wake, { passive: true }));
+
+/* ── 탭 복귀 시 즉시 정확한 값으로 ──────────────────────────── */
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden) return;
+  if(state.status === "running"){ tick(); acquireWake(); }
+});
+
+/* 첫 사용자 입력에서 AudioContext 를 깨운다 (자동재생 정책) */
+["pointerdown","keydown"].forEach(ev =>
+  document.addEventListener(ev, () => audio(), { once: true }));
+
+/* ══════════════════════════════════════════════════════════════
+   ⑩ init
+   ══════════════════════════════════════════════════════════════ */
+load();
+applySettings();
+$("diskTicks").innerHTML = buildTicks();   // 눈금은 변하지 않으므로 한 번만 만든다
+syncPomodoroInputs();
+renderSteps();
+renderTemplates();
+$("tplName").value = state.activeTemplate;
+loadQueue(stepQueue().length ? stepQueue() : presetQueue(5), false);
+wake();
+// 벽시계는 타이머가 멈춰 있어도 흘러야 한다 (틱은 실행 중에만 돌기 때문에 별도 주기)
+setInterval(renderClock, 5000);
+</script>
 </body>
 </html>

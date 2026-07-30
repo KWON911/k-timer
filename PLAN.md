@@ -1,6 +1,6 @@
 # 수업용 집중 타이머 — 구현 계획
 
-> 상태: **구현 완료** (2026-07-30) · 산출물 `focus-timer.html`
+> 상태: **구현 완료** (2026-07-30) · 산출물 `index.html`
 > 계획 원본은 `~/.claude/plans/vivid-foraging-scroll.md` 에도 보관돼 있습니다.
 
 ## Context
@@ -18,13 +18,19 @@
 
 ## 산출물
 
-`focus-timer.html` — 단일 파일, 1565줄 / 75.4KB.
+`index.html` — 단일 파일, 1565줄 / 75.4KB. 이것 하나가 전부다.
 
-`index.html` — GitHub Pages 용 리다이렉트 한 장 (https://kwon911.github.io/k-timer/).
-Pages 는 폴더 주소에서 `index.html` 을 찾는데, 본체 이름을 `index.html` 로 바꾸면
-USB 배포에서 무슨 파일인지 알 수 없고 문서·커밋에 적힌 이름도 전부 어긋난다.
-그래서 이름은 지키고 넘겨보내는 파일만 따로 뒀다. `meta refresh` 가 막히는 환경을 위해
-손수 누를 링크도 함께 둔다. 상대 경로라 외부 요청은 여전히 0건이다.
+**왜 `index.html` 인가** — 처음에는 `focus-timer.html` 이었고, GitHub Pages 배포 때
+루트 주소용으로 `index.html` 리다이렉트를 한 장 더 뒀다. 그런데 그러면
+주소가 `.../k-timer/focus-timer.html` 로 길어지고 이동 중 안내 문구가 한 번 스친다.
+Pages 는 폴더 주소에서 `index.html` 을 그대로 내주므로, 본체를 `index.html` 로 만들면
+`https://kwon911.github.io/k-timer/` 만으로 열리고 중간 단계가 사라진다.
+HTML 파일도 다시 하나가 된다.
+
+- 대가는 파일 이름이 덜 설명적이라는 것 하나다. USB 로 나눠줄 때는 사본 이름을
+  `수업타이머.html` 처럼 바꿔도 된다 — **의존성이 없어 이름이 동작에 관여하지 않는다.**
+- 내보내기 JSON 의 `app: "focus-timer"` 와 저장 키 `focusTimer.` 는 **파일 이름이 아니라
+  식별자다.** 바꾸면 이미 내보낸 템플릿 파일과 저장된 설정을 못 읽으므로 그대로 둔다.
 
 ## 설계
 
