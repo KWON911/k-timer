@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="light" data-minimal="false" data-panel="closed">
+<html lang="ko" data-theme="light" data-display="ring" data-panel="closed">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,7 +21,7 @@ html[data-theme="dark"]{
   --text:#eef1f6; --muted:#98a1b0;
   --accent:#5b93ff; --accent-soft:#1d2c4d;
   --warn:#f0a638; --danger:#ff5f5f;
-  --track:#242b36;
+  --track:#242b36; --dial:#1a2029;
   --shadow:0 6px 24px rgba(0,0,0,.35);
 }
 
@@ -162,15 +162,24 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 #panelBtn{position:fixed;top:12px;right:12px;z-index:5;box-shadow:var(--shadow)}
 
 /* ─────────────────────────────────────────────────────────────
-   5. 숫자만 모드 — CSS 만으로 장식을 걷어낸다
+   5. 표시 방식 — ring / disk / number. CSS 만으로 갈아끼운다
    ───────────────────────────────────────────────────────────── */
-html[data-minimal="true"] .gauge,
-html[data-minimal="true"] .stage-head,
-html[data-minimal="true"] #wallClock,
-html[data-minimal="true"] #note{display:none}
-html[data-minimal="true"] .clock-wrap{width:auto;height:auto}
-html[data-minimal="true"] #time{font-size:min(30vmin,25rem)}
-html[data-minimal="true"] #time.long{font-size:min(18vmin,15rem)}
+html[data-display="ring"]   .disk-group{display:none}
+html[data-display="disk"]   .ring-group{display:none}
+html[data-display="number"] .gauge{display:none}
+
+/* 원판 모드: 숫자가 가운데 구멍(r=22, 지름 44) 안에 들어가야 하므로 링 모드보다 작다.
+   5자("05:00") 폭 ≈ 3×글자크기 → .125×gauge 면 37.5 로 44 안에 여유가 남는다. */
+html[data-display="disk"] #time{font-size:calc(var(--gauge) * .125)}
+html[data-display="disk"] #time.long{font-size:calc(var(--gauge) * .09)}
+
+/* 숫자만 모드: 장식을 모두 걷고 숫자를 최대로 */
+html[data-display="number"] .stage-head,
+html[data-display="number"] #wallClock,
+html[data-display="number"] #note{display:none}
+html[data-display="number"] .clock-wrap{width:auto;height:auto}
+html[data-display="number"] #time{font-size:min(30vmin,25rem)}
+html[data-display="number"] #time.long{font-size:min(18vmin,15rem)}
 
 /* ─────────────────────────────────────────────────────────────
    6. 알림 애니메이션
@@ -305,7 +314,12 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
 
   <section class="sec">
     <h2>표시 &amp; 소리</h2>
-    <div class="toggle"><label for="minimalChk">숫자만 보기 (게이지·단계명 숨김)</label><input type="checkbox" id="minimalChk"></div>
+    <label for="dispSel">표시 방식 <span style="color:var(--muted)">(M 키로 순환)</span></label>
+    <select id="dispSel" style="width:100%;margin:6px 0 12px">
+      <option value="ring">링 + 숫자 — 얇은 테두리와 큰 숫자</option>
+      <option value="disk">원판 + 숫자 — 남은 양이 면적으로</option>
+      <option value="number">숫자만 — 장식 없이 가장 크게</option>
+    </select>
     <div class="toggle"><label for="soundChk">종료 알림음</label><input type="checkbox" id="soundChk"></div>
     <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음</label><input type="checkbox" id="preWarnChk"></div>
     <div class="toggle"><label for="overrunChk">종료 후 초과 시간 표시 (+2:30)</label><input type="checkbox" id="overrunChk"></div>
@@ -322,7 +336,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
     <h2>단축키</h2>
     <div class="hint">
       <kbd>Space</kbd> 시작·일시정지 &nbsp; <kbd>R</kbd> 초기화 &nbsp; <kbd>N</kbd> 다음 단계<br>
-      <kbd>F</kbd> 전체화면 &nbsp; <kbd>M</kbd> 숫자만 &nbsp; <kbd>T</kbd> 테마<br>
+      <kbd>F</kbd> 전체화면 &nbsp; <kbd>M</kbd> 표시 방식 &nbsp; <kbd>T</kbd> 테마<br>
       <kbd>S</kbd> 설정 패널 &nbsp; <kbd>Esc</kbd> 패널 닫기 &nbsp; <kbd>1</kbd>–<kbd>6</kbd> 프리셋
     </div>
   </section>
@@ -351,6 +365,38 @@ const PALETTE = [
 ];
 const stepColor = i => PALETTE[i] ? PALETTE[i].css : "";
 
+/* 표시 방식. M 키가 이 순서로 순환한다 */
+const DISPLAYS = ["ring", "disk", "number"];
+const DISPLAY_NAMES = { ring: "링 + 숫자", disk: "원판 + 숫자", number: "숫자만" };
+
+/* 원판 부채꼴 — viewBox 0 0 100 100, 중심 50,50. 12시에서 시계방향으로 deg 만큼.
+   남은 시간이 줄면 12시 쪽으로 수축한다 (교실용 타임타이머와 같은 방향) */
+const SEC_R = 38.5;
+const polar = (deg, r) => {
+  const a = (deg - 90) * Math.PI / 180;
+  return [50 + r * Math.cos(a), 50 + r * Math.sin(a)];
+};
+function sectorPath(deg){
+  if(!(deg > 0.05)) return "";
+  // 360°는 호가 시작점=끝점이 되어 그려지지 않으므로 원 두 개로 나눠 그린다
+  if(deg >= 359.95) return `M 50 ${50-SEC_R} A ${SEC_R} ${SEC_R} 0 1 1 49.99 ${50-SEC_R} Z`;
+  const [x1, y1] = polar(0, SEC_R), [x2, y2] = polar(deg, SEC_R);
+  return `M 50 50 L ${x1.toFixed(2)} ${y1.toFixed(2)} `
+       + `A ${SEC_R} ${SEC_R} 0 ${deg > 180 ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+}
+/* 눈금 60개(5개마다 큰 눈금). 한 바퀴 = 그 단계 전체 시간이므로 숫자는 붙이지 않는다 */
+function buildTicks(){
+  let out = "";
+  for(let i = 0; i < 60; i++){
+    const maj = i % 5 === 0;
+    const [x1, y1] = polar(i * 6, 46);
+    const [x2, y2] = polar(i * 6, maj ? 40 : 42.5);
+    out += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"`
+         + ` stroke-width="${maj ? 1.1 : .5}" opacity="${maj ? .8 : .4}"/>`;
+  }
+  return out;
+}
+
 const state = {
   queue: [],            // [{name, ms, kind}]  — 프리셋/스텝/뽀모도로 모두 이 큐로 실행
   index: 0,
@@ -360,7 +406,7 @@ const state = {
   totalMs: 0,           // 현재 단계 전체 길이 (게이지 기준)
   absoluteEnd: null,    // 정각 종료 모드의 목표 시각. 있으면 벽시계 기준으로 동작한다
   overrunFrom: null,    // 계획된 종료 시각. 있으면 남은 시간 대신 초과 시간(+MM:SS)을 센다
-  settings: { theme:"light", minimal:false, sound:true, volume:0.6, autoAdvance:true,
+  settings: { theme:"light", display:"ring", sound:true, volume:0.6, autoAdvance:true,
               panelOpen:false, preWarn:true, overrun:true, showClock:true },
   pomodoro: { focusMin:25, breakMin:5, longBreakMin:15, totalRounds:4, roundsPerLongBreak:4 },
   stepList: [ {name:"도입", minutes:5, color:0}, {name:"모둠 활동", minutes:15, color:2},
@@ -413,17 +459,27 @@ function save(){
   }catch(e){ /* 사생활 보호 모드 등 — 저장 실패는 무시하고 계속 동작 */ }
 }
 function load(){
+  // 병합과 별개로 파싱된 원본을 돌려준다 — 이전(migration) 판단은 저장값 자체를 봐야 한다
   const read = (key, into) => {
     try{
       const raw = localStorage.getItem(LS+key);
-      if(!raw) return;
+      if(!raw) return null;
       const val = JSON.parse(raw);
-      if(Array.isArray(into)) return val;
-      if(val && typeof val === "object") Object.assign(into, val);
-    }catch(e){ /* 손상된 값은 조용히 무시 */ }
+      if(val && typeof val === "object" && !Array.isArray(into)) Object.assign(into, val);
+      return val;
+    }catch(e){ return null; /* 손상된 값은 조용히 무시 */ }
   };
-  read("settings", state.settings);
+  const saved = read("settings", state.settings);
   read("pomodoro", state.pomodoro);
+  /* 예전 버전의 '숫자만 보기' 토글을 표시 방식으로 옮긴다.
+     병합 후의 state.settings.display 는 이미 기본값 "ring" 이라 유효해 보이므로,
+     반드시 저장된 객체(saved)에 display 가 있었는지로 판단해야 한다. */
+  if(saved && DISPLAYS.indexOf(saved.display) < 0){
+    state.settings.display = saved.minimal ? "number" : "ring";
+  }else if(DISPLAYS.indexOf(state.settings.display) < 0){
+    state.settings.display = "ring";
+  }
+  delete state.settings.minimal;
   const steps = sanitizeSteps(read("steps", []));
   if(steps) state.stepList = steps;
   state.templates = sanitizeTemplates(read("templates", []));
@@ -792,7 +848,7 @@ function pomodoroQueue(){
    ⑦ 렌더
    ══════════════════════════════════════════════════════════════ */
 let noteOverride = "";
-let lastTime = "", lastMinute = -1, lastStepColor = "";
+let lastTime = "", lastMinute = -1, lastStepColor = "", lastSectorDeg = -1;
 
 /* down=true(카운트다운): 올림 — 5분 시작 시 04:59 로 보이지 않게.
    down=false(카운트업):   내림 — 시작 직후 +0:01 로 튀지 않게. */
@@ -818,9 +874,18 @@ function render(){
   const title = `${txt} · ${cur ? cur.name : "타이머"}`;
   if(document.title !== title) document.title = title;
 
-  // 게이지
+  // 게이지 — 링과 원판이 같은 비율을 쓴다
   const ratio = st.overrunFrom ? 0 : (st.totalMs > 0 ? st.remainingMs / st.totalMs : 0);
-  $("bar").setAttribute("stroke-dashoffset", (CIRC * (1 - ratio)).toFixed(2));
+  if(st.settings.display === "ring"){
+    $("bar").setAttribute("stroke-dashoffset", (CIRC * (1 - ratio)).toFixed(2));
+  }else if(st.settings.display === "disk"){
+    // 0.5° 단위로만 다시 그린다 (200ms 마다 경로를 새로 만들 필요가 없다)
+    const deg = Math.round(ratio * 720) / 2;
+    if(deg !== lastSectorDeg){
+      $("diskSector").setAttribute("d", sectorPath(deg));
+      lastSectorDeg = deg;
+    }
+  }
 
   // 경고 단계 ("over" 는 빨간색이지만 맥박 애니메이션은 없다 — 오래 켜져 있을 수 있으므로)
   const live = st.status === "running" || st.status === "paused";
@@ -960,10 +1025,10 @@ function tplMsg(text){
 function applySettings(){
   const s = state.settings;
   document.documentElement.dataset.theme = s.theme;
-  document.documentElement.dataset.minimal = String(s.minimal);
+  document.documentElement.dataset.display = s.display;
   document.documentElement.dataset.panel = s.panelOpen ? "open" : "closed";
   $("panelBtn").setAttribute("aria-expanded", String(s.panelOpen));
-  $("minimalChk").checked = s.minimal;
+  $("dispSel").value = s.display;
   $("soundChk").checked = s.sound;
   $("preWarnChk").checked = s.preWarn;
   $("overrunChk").checked = s.overrun;
@@ -1158,7 +1223,18 @@ $("addStep").onclick = () => {
 
 // 표시 & 소리
 $("autoAdv").onchange   = e => { state.settings.autoAdvance = e.target.checked; save(); };
-$("minimalChk").onchange = e => { state.settings.minimal = e.target.checked; applySettings(); save(); };
+$("dispSel").onchange = e => { setDisplay(e.target.value); };
+
+function setDisplay(mode){
+  if(DISPLAYS.indexOf(mode) < 0) return;
+  state.settings.display = mode;
+  lastSectorDeg = -1;              // 방식이 바뀌면 부채꼴을 강제로 다시 그린다
+  applySettings(); render(); save();
+}
+function cycleDisplay(){
+  const i = DISPLAYS.indexOf(state.settings.display);
+  setDisplay(DISPLAYS[(i + 1) % DISPLAYS.length]);
+}
 $("soundChk").onchange  = e => { state.settings.sound = e.target.checked; save(); };
 $("preWarnChk").onchange = e => { state.settings.preWarn = e.target.checked; save(); };
 $("clockChk").onchange   = e => { state.settings.showClock = e.target.checked; renderClock(); save(); };
@@ -1202,7 +1278,7 @@ document.addEventListener("keydown", e => {
   if(k === "r"){ guardedReset(); return; }
   if(k === "n"){ next(); return; }
   if(k === "f"){ toggleFullscreen(); return; }
-  if(k === "m"){ $("minimalChk").click(); return; }
+  if(k === "m"){ cycleDisplay(); return; }
   if(k === "t"){ toggleTheme(); return; }
   if(k === "s"){ togglePanel(); return; }
   if(e.key === "Escape"){ togglePanel(false); return; }
@@ -1237,6 +1313,7 @@ document.addEventListener("visibilitychange", () => {
    ══════════════════════════════════════════════════════════════ */
 load();
 applySettings();
+$("diskTicks").innerHTML = buildTicks();   // 눈금은 변하지 않으므로 한 번만 만든다
 syncPomodoroInputs();
 renderSteps();
 renderTemplates();
