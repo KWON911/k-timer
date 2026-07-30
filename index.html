@@ -118,10 +118,30 @@ body[data-clock="on"] .stage{--rail:var(--railH)}
 }
 #stepName{grid-column:2}
 #counter{grid-column:3; justify-self:start; margin-left:.7em}
+/* 왼쪽 칸에 같은 글자를 숨겨 세워 두 바깥 칸의 폭을 같게 만든다.
+   이름이 길어 가운데 칸이 넓어져도 좌우가 똑같이 줄어들어 이름이 중심에 남는다 */
+#counterGhost{grid-column:1; justify-self:end; margin-right:.7em; visibility:hidden}
 #stepName{
   font-size:clamp(1.1rem,3.6vmin,2.6rem); font-weight:700;
   letter-spacing:-.015em; text-align:center; min-width:0;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* 글자 수를 제한하지 않는 대신 길면 크기를 낮춘다. 그래도 넘치면 말줄임표로 자르고,
+   고쳐 쓰는 동안에는 아래에서 전체를 보여준다 */
+#stepName[data-len="mid"] {font-size:clamp(1rem,2.7vmin,1.9rem)}
+#stepName[data-len="long"]{font-size:clamp(.9rem,2.1vmin,1.4rem)}
+
+/* 고칠 수 있는 상태에서만 손댈 수 있다는 표시를 낸다.
+   테두리를 늘 투명하게 깔아 두는 이유 — 마우스를 올릴 때 높이가 흔들리지 않게 */
+#stepName[data-edit="on"]{
+  cursor:text; border-bottom:2px dashed transparent; padding-bottom:2px;
+  transition:border-color .15s;
+}
+#stepName[data-edit="on"]:hover{border-bottom-color:var(--line)}
+#stepName[data-edit="on"]:focus{
+  outline:none; border-bottom-color:var(--live);
+  /* 고치는 동안에는 자르지 않는다 — 친 글자가 보여야 한다 */
+  text-overflow:clip; overflow-x:auto; max-width:100%;
 }
 #counter{
   font-size:clamp(.75rem,1.7vmin,1.15rem); color:var(--muted);
@@ -433,6 +453,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
 <main class="stage">
   <div id="wallClock"></div>
   <div class="stage-head">
+    <div id="counterGhost" class="num" aria-hidden="true"></div>
     <div id="stepName">집중</div>
     <div id="counter" class="num"></div>
   </div>
@@ -659,7 +680,8 @@ const state = {
   settings: { theme:"light", display:"ring", sound:true, volume:0.6, autoAdvance:true,
               panelOpen:false, preWarn:true, overrun:true, showClock:true,
               baseColor:"",     // "" = 테마 기본 강조색을 그대로 쓴다
-              openSecs:["secQuick"] },   // 펼쳐 둔 설정 구획. 나머지는 제목만 보인다
+              openSecs:["secQuick"],     // 펼쳐 둔 설정 구획. 나머지는 제목만 보인다
+              quickName:"" },   // 빠른 시작 제목을 교사가 고쳐 쓴 값. "" = 길이로 만든 기본 이름
   pomodoro: { focusMin:25, breakMin:5, longBreakMin:15, totalRounds:4, roundsPerLongBreak:4 },
   stepList: [ {name:"도입", minutes:5, color:0}, {name:"모둠 활동", minutes:15, color:2},
               {name:"발표·정리", minutes:10, color:4} ],
@@ -733,6 +755,9 @@ function load(){
   }
   delete state.settings.minimal;
   if(!isHex(state.settings.baseColor)) state.settings.baseColor = "";   // 손상된 값은 테마 기본값으로
+  // 문자열이 아니면(손상된 저장값) 지정하지 않은 것으로 본다. 길이는 제한하지 않는다
+  state.settings.quickName = typeof state.settings.quickName === "string"
+    ? cleanName(state.settings.quickName) : "";
   state.settings.openSecs = Array.isArray(state.settings.openSecs)
     ? SEC_IDS.filter(id => state.settings.openSecs.indexOf(id) >= 0)    // 모르는 id 는 버린다
     : ["secQuick"];
@@ -945,7 +970,7 @@ function runUntil(target){
   const ms = target.getTime() - Date.now();
   if(!(ms > 0)) return false;
   const label = `${String(target.getHours()).padStart(2,"0")}:${String(target.getMinutes()).padStart(2,"0")} 까지`;
-  loadQueue([{ name: label, ms, kind: "focus" }], false);
+  loadQueue([quickStep(ms, label)], false);
   state.absoluteEnd = target.getTime();
   start();
   return true;
@@ -1099,7 +1124,15 @@ const durationName = ms => durationLabel(ms) + " 집중";
 /* "약 25분" 처럼 어림수로 알리는 자리용. 초까지 붙이면 "약" 과 어긋나 오히려 읽기 나쁘다.
    1분 미만일 때만 초로 내려간다 — 반올림하면 "약 0분" 이 되기 때문이다. */
 const roughLabel = ms => ms < 60000 ? durationLabel(ms) : Math.round(ms / 60000) + "분";
-const durationQueue = ms => [{ name: durationName(ms), ms, kind: "focus" }];
+/* 빠른 시작 계열(프리셋·직접 입력·이 시각까지)의 제목.
+   교사가 큰 제목을 눌러 고쳐 쓴 이름이 있으면 그것을 쓰고, 없으면 길이로 만든 기본 이름을 쓴다.
+   글자 수는 제한하지 않는다 — 앞뒤 공백과 연속 공백만 다듬는다.
+   `auto` 를 함께 실어 두는 이유: 나중에 이름을 비웠을 때 무엇으로 되돌릴지 알아야 한다. */
+const cleanName = s => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+const quickLabel = auto => cleanName(state.settings.quickName) || auto;
+const quickStep = (ms, auto) => ({ name: quickLabel(auto), auto, ms, kind: "focus", editable: true });
+
+const durationQueue = ms => [quickStep(ms, durationName(ms))];
 const presetQueue = min => durationQueue(min * 60000);
 
 function stepQueue(){
@@ -1198,8 +1231,12 @@ function render(){
     st.remainingMs <= 60000 ? "warn" : "";
 
   // 단계명 / 카운터 / 안내
-  $("stepName").textContent = cur ? cur.name : "타이머";
-  $("counter").textContent = st.queue.length > 1 ? `${st.index + 1} / ${st.queue.length}` : "";
+  renderStepName(cur);
+  const counterTxt = st.queue.length > 1 ? `${st.index + 1} / ${st.queue.length}` : "";
+  $("counter").textContent = counterTxt;
+  // 반대쪽의 보이지 않는 짝. 같은 글자를 넣어 두 칸의 폭을 맞춘다 —
+  // 이게 없으면 이름이 길 때 카운터 폭만큼 왼쪽으로 밀린다
+  $("counterGhost").textContent = counterTxt;
   renderRibbon();
 
   // 띠가 떠 있으면 다음 단계를 이미 보여주고 있으므로 이 줄에서는 비운다.
@@ -1270,6 +1307,46 @@ function renderClock(){
     ? `<div><span class="lab">${state.queue.length > 1 ? "전체 종료" : "종료"}</span><span class="num">${endTxt}</span> 예정</div>`
     : "<div></div>";
   el.innerHTML = `<div><span class="lab">지금</span><span class="num">${now}</span></div>` + right;
+}
+
+/* ── 큰 제목 ────────────────────────────────────────────────────
+   빠른 시작 계열에서는 이 제목을 눌러 바로 고쳐 쓸 수 있다.
+   render() 는 200ms 마다 도는데, 고쳐 쓰는 동안 이름을 덮어쓰면 커서가 튀고
+   한글 조합 중이면 글자가 깨진다. 그래서 **입력 중에는 손대지 않는다.** */
+let nameComposing = false, lastEditable = null;
+const setNameComposing = v => { nameComposing = !!v; };   // 테스트에서 조합 상태를 흉내내기 위해
+const nameEditing = () =>
+  nameComposing || (typeof document.activeElement !== "undefined" && document.activeElement === $("stepName"));
+
+function renderStepName(cur){
+  const el = $("stepName");
+  if(nameEditing()) return;
+  const want = cur ? cur.name : "타이머";
+  if(el.textContent !== want) el.textContent = want;
+  // 글자 수는 제한하지 않는 대신, 길면 크기를 낮춰 원 위에 들어가게 한다
+  const n = want.length;
+  el.dataset.len = n <= 12 ? "" : n <= 24 ? "mid" : "long";
+
+  const canEdit = !!(cur && cur.editable);
+  if(canEdit !== lastEditable){
+    lastEditable = canEdit;
+    el.setAttribute("contenteditable", canEdit ? "plaintext-only" : "false");
+    el.dataset.edit = canEdit ? "on" : "off";
+    if(canEdit) el.setAttribute("title", "눌러서 이름을 고칠 수 있습니다 (비우면 원래대로)");
+    else el.removeAttribute("title");
+  }
+}
+
+/* 고쳐 쓴 이름을 확정한다. 기본 이름과 같거나 비었으면 "지정하지 않음"으로 되돌린다 —
+   되돌리는 버튼을 따로 두지 않고 이 규칙 하나로 처리한다. */
+function commitStepName(){
+  const el = $("stepName"), cur = state.queue[state.index];
+  if(!cur || !cur.editable) return;
+  const typed = cleanName(el.textContent);
+  state.settings.quickName = (typed && typed !== cur.auto) ? typed : "";
+  cur.name = typed || cur.auto;
+  save();
+  render();
 }
 
 /* ── 수업 띠 ────────────────────────────────────────────────────
@@ -1474,6 +1551,18 @@ PRESETS.forEach((m, i) => {
   b.onclick = () => loadQueue(presetQueue(m), true);
   $("presets").appendChild(b);
 });
+
+/* 큰 제목 고쳐쓰기. Enter 는 줄바꿈 대신 확정, Esc 는 되돌리고 나간다.
+   (단축키 처리기는 isContentEditable 을 이미 걸러내므로 타이핑 중 Space 로 타이머가 멈추지 않는다) */
+let nameBefore = "";
+$("stepName").addEventListener("compositionstart", () => { nameComposing = true; });
+$("stepName").addEventListener("compositionend",   () => { nameComposing = false; });
+$("stepName").addEventListener("focus", () => { nameBefore = $("stepName").textContent; });
+$("stepName").addEventListener("keydown", e => {
+  if(e.key === "Enter"){ e.preventDefault(); $("stepName").blur(); }
+  else if(e.key === "Escape"){ e.preventDefault(); $("stepName").textContent = nameBefore; $("stepName").blur(); }
+});
+$("stepName").addEventListener("blur", () => { nameComposing = false; commitStepName(); });
 
 $("startBtn").onclick = toggle;
 $("resetBtn").onclick = guardedReset;
