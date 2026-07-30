@@ -28,6 +28,8 @@
   /* 패널 폭은 화면 크기에 따라 아래 미디어 쿼리에서 바뀐다.
      스테이지의 게이지 계산도 이 값을 읽으므로 한 곳만 고치면 둘이 같이 따라온다 */
   --panelW:352px;
+  /* 상단 레일의 높이를 못 박는다. 값이 정해져 있어야 스테이지가 그만큼 자리를 비울 수 있다 */
+  --railH:clamp(34px,5.4vmin,52px);
 }
 html[data-theme="dark"]{
   --bg:#0C111C; --surface:#141B29; --surface-2:#1B2436; --line:#25314A;
@@ -74,25 +76,30 @@ body{
        세로 — 제목·안내·버튼이 쓰는 높이(--chrome)를 뺀 나머지
      예전에는 vmin 하나만 봤기 때문에, 창이 낮으면 아래 버튼이 잘려 나갔다. */
   --pw:0px;
-  /* --chrome-base 는 미디어 쿼리가, --rib 은 수업 띠가 각각 따로 건드린다.
-     한 변수에 둘을 섞으면 낮은 화면 규칙과 띠 규칙이 서로를 덮어쓴다 */
+  /* --chrome-base 는 미디어 쿼리가, --rib 은 수업 띠가, --rail 은 상단 레일이
+     각각 따로 건드린다. 한 변수에 섞으면 서로를 덮어쓴다 */
   --chrome-base:clamp(148px,30vh,300px);
   --rib:0px;
-  --chrome:calc(var(--chrome-base) + var(--rib));
+  --rail:0px;
+  --chrome:calc(var(--chrome-base) + var(--rib) + var(--rail));
   --gauge:min(calc(100vw - var(--pw) - 6vmin), calc(100vh - var(--chrome)), 660px);
   position:relative; display:flex; flex-direction:column;
   align-items:center; justify-content:center; gap:clamp(8px,2vmin,24px);
   min-width:0; padding:2vmin;
+  /* 레일은 position:absolute 라 스스로 자리를 차지하지 않는다. 여기서 비워 주지 않으면
+     창이 낮을 때 가운데 정렬된 내용이 레일 밑으로 올라와 단계명이 선에 겹친다 */
+  padding-top:calc(2vmin + var(--rail));
 }
 html[data-panel="open"] .stage{--pw:var(--panelW)}
+body[data-clock="on"] .stage{--rail:var(--railH)}
 
 /* 상단 레일 — 두 시각을 양 끝에 걸고 그 사이를 실선 한 겹으로 잇는다.
    가운데 모아 두는 것보다 화면의 폭을 쓰고, 계기판처럼 읽힌다 */
 #wallClock{
-  position:absolute; top:0; left:0; right:0;
+  position:absolute; top:0; left:0; right:0; height:var(--railH);
   display:flex; justify-content:space-between; align-items:center;
   /* 오른쪽 여백은 고정된 ⚙설정 버튼이 종료 시각을 덮지 않도록 비워 둔 자리다 */
-  gap:12px; padding:1.6vmin 118px 1.1vmin 2.6vmin;
+  gap:12px; padding:0 118px 0 2.6vmin;
   border-bottom:1px solid var(--line);
   font-size:clamp(.72rem,1.6vmin,1.05rem); color:var(--muted);
   letter-spacing:.02em;
@@ -100,18 +107,25 @@ html[data-panel="open"] .stage{--pw:var(--panelW)}
 #wallClock:empty{border-bottom:none}
 #wallClock .lab{font-weight:600;letter-spacing:.06em;opacity:.75;margin-right:.45em}
 
+/* 원 위의 제목은 원과 함께 가운데에 선다.
+   한때 게이지 왼쪽 모서리에 붙여 위계를 주려 했는데, 창이 좁아 이름이 짧으면
+   원과 멀찍이 떨어져 고장난 것처럼 보였다. 대칭인 원 위에서는 가운데가 맞다. */
+/* 3열 격자로 두면 가운데 칸이 좌우 1fr 사이에 정확히 선다 —
+   오른쪽의 `3 / 5` 가 몇 글자든 단계명이 원의 중심에서 밀리지 않는다 */
 .stage-head{
-  display:flex; align-items:baseline; gap:.6em; min-height:1.4em;
-  width:min(100%,var(--gauge)); /* 게이지 왼쪽 모서리에 맞춰 세운다 */
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:baseline;
+  min-height:1.4em; max-width:min(100%,var(--gauge)); width:100%;
 }
+#stepName{grid-column:2}
+#counter{grid-column:3; justify-self:start; margin-left:.7em}
 #stepName{
   font-size:clamp(1.1rem,3.6vmin,2.6rem); font-weight:700;
-  letter-spacing:-.015em; text-align:left;
+  letter-spacing:-.015em; text-align:center; min-width:0;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 #counter{
   font-size:clamp(.75rem,1.7vmin,1.15rem); color:var(--muted);
-  white-space:nowrap; margin-left:auto; letter-spacing:.04em;
+  white-space:nowrap; letter-spacing:.04em; flex:0 0 auto;
 }
 
 .clock-wrap{position:relative;display:grid;place-items:center;width:var(--gauge);height:var(--gauge)}
@@ -378,7 +392,9 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
 /* ── 높이 560px 미만 — 낮은 창, 가로로 든 휴대전화.
       여백과 제목을 줄여 게이지가 들어갈 세로를 확보한다 */
 @media (max-height:560px){
-  .stage{--chrome-base:clamp(112px,26vh,180px);gap:6px;padding:1vmin}
+  /* padding 축약형이 위의 padding-top:calc(… + --rail) 을 지운다. 다시 세워 준다 */
+  .stage{--chrome-base:clamp(112px,26vh,180px);gap:6px;padding:1vmin;
+         padding-top:calc(1vmin + var(--rail))}
   body[data-ribbon="on"] .stage{--rib:52px}
   .ribbon{padding-bottom:1vmin}
   #wallClock{top:1vmin;left:1.6vmin}
@@ -1398,6 +1414,8 @@ function applySettings(){
   $("clockChk").checked = s.showClock;
   $("vol").value = s.volume;
   $("autoAdv").checked = s.autoAdvance;
+  // 레일이 자리를 차지할지 CSS 에 알린다 (끄면 그 높이를 게이지가 가져간다)
+  document.body.dataset.clock = s.showClock ? "on" : "off";
   SEC_IDS.forEach(id => {
     const el = $(id);
     if(el) el.open = s.openSecs.indexOf(id) >= 0;
