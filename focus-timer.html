@@ -962,11 +962,17 @@ function parseDuration(text){
   const p = durationParts(text);
   return p.ms === undefined ? null : p.ms;
 }
-/* 초가 0이면 "5분 집중" — 프리셋 이름과 형식이 같아야 한다 */
-function durationName(ms){
+/* 길이를 사람이 읽는 말로. 초가 0이면 "5분" 이라 예전 표기와 같고,
+   1분 미만이면 "45초" 가 된다 — 분으로 반올림하면 "0분" 이 나와 버린다. */
+function durationLabel(ms){
   const total = Math.round(ms / 1000), m = Math.floor(total / 60), s = total % 60;
-  return (m && s ? `${m}분 ${s}초` : m ? `${m}분` : `${s}초`) + " 집중";
+  return m && s ? `${m}분 ${s}초` : m ? `${m}분` : `${s}초`;
 }
+/* 초가 0이면 "5분 집중" — 프리셋 이름과 형식이 같아야 한다 */
+const durationName = ms => durationLabel(ms) + " 집중";
+/* "약 25분" 처럼 어림수로 알리는 자리용. 초까지 붙이면 "약" 과 어긋나 오히려 읽기 나쁘다.
+   1분 미만일 때만 초로 내려간다 — 반올림하면 "약 0분" 이 되기 때문이다. */
+const roughLabel = ms => ms < 60000 ? durationLabel(ms) : Math.round(ms / 60000) + "분";
 const durationQueue = ms => [{ name: durationName(ms), ms, kind: "focus" }];
 const presetQueue = min => durationQueue(min * 60000);
 
@@ -1071,7 +1077,7 @@ function render(){
   const nxt = st.queue[st.index + 1];
   $("note").textContent = noteOverride ||
     (st.status === "finished" ? "모든 단계가 끝났습니다" :
-     nxt ? `다음: ${nxt.name} · ${Math.round(nxt.ms / 60000)}분` : "");
+     nxt ? `다음: ${nxt.name} · ${durationLabel(nxt.ms)}` : "");
 
   // 버튼 상태
   $("startBtn").textContent = st.status === "running" ? "일시정지" :
@@ -1300,10 +1306,11 @@ $("untilBtn").onclick = () => {
   if(!raw){ untilMsg("종료 시각을 입력해주세요"); $("untilTime").focus(); return; }
   const target = parseClock(raw);
   if(!target){ untilMsg(`${raw} 은 이미 지난 시각입니다`); return; }
-  const mins = Math.round((target.getTime() - Date.now()) / 60000);
-  if(mins > 12 * 60){ untilMsg("12시간 이내의 시각만 지정할 수 있습니다"); return; }
+  // 분으로 반올림하면 다음 분을 지정했을 때 "약 0분"이 된다 — 남은 길이를 그대로 표기한다
+  const leftMs = target.getTime() - Date.now();
+  if(leftMs > 12 * 3600000){ untilMsg("12시간 이내의 시각만 지정할 수 있습니다"); return; }
   runUntil(target);
-  untilMsg(`${raw} 까지 약 ${mins}분 — 일시정지해도 종료 시각은 그대로입니다`);
+  untilMsg(`${raw} 까지 약 ${roughLabel(leftMs)} — 일시정지해도 종료 시각은 그대로입니다`);
 };
 $("untilTime").addEventListener("keydown", e => { if(e.key === "Enter") $("untilBtn").click(); });
 
@@ -1383,7 +1390,7 @@ $("fitBtn").onclick = () => {
   if(r.code === "past"){ fitMsg("이미 지난 시각입니다"); return; }
   if(r.code === "tooshort"){ fitMsg("남은 시간이 너무 짧아 단계를 나눌 수 없습니다"); return; }
   const pct = Math.round(r.factor * 100);
-  fitMsg(`계획 ${Math.round(r.planned / 60000)}분 → ${Math.round(r.avail / 60000)}분 (${pct}%) 로 압축`
+  fitMsg(`계획 ${durationLabel(r.planned)} → ${durationLabel(r.avail)} (${pct}%) 로 압축`
        + " · 단계 목록 원본은 그대로입니다");
 };
 $("fitTime").addEventListener("keydown", e => { if(e.key === "Enter") $("fitBtn").click(); });
