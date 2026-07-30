@@ -349,9 +349,12 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
     <summary>빠른 시작</summary>
     <div class="preset-grid" id="presets"></div>
     <div class="row mt">
-      <input type="number" id="customMin" min="1" max="600" step="1" placeholder="분" style="width:80px">
-      <button id="customBtn" style="flex:1">직접 입력한 시간으로 시작</button>
+      <input type="text" id="customTime" maxlength="7" placeholder="분:초"
+             aria-label="직접 입력 시간 — 분 또는 분:초" style="width:80px">
+      <button id="customBtn" style="flex:1"
+              title="5 → 5분 / 5:30 → 5분 30초 / :45 → 45초">직접 입력한 시간으로 시작</button>
     </div>
+    <div class="total" id="customMsg"></div>
     <div class="row mt">
       <input type="time" id="untilTime" aria-label="종료 시각" style="width:110px">
       <button id="untilBtn" style="flex:1" title="지정한 시각까지 (벽시계 기준)">이 시각까지</button>
@@ -925,7 +928,47 @@ function flash(){
 /* ══════════════════════════════════════════════════════════════
    ⑥ 큐 생성 — 프리셋 / 스텝 / 뽀모도로
    ══════════════════════════════════════════════════════════════ */
-const presetQueue = min => [{ name: min + "분 집중", ms: min * 60000, kind: "focus" }];
+/* "직접 입력" 칸의 문자열을 밀리초로 바꾼다. 못 읽으면 null 을 돌려주고, 호출한 쪽이 안내한다.
+     "5"    → 5분      숫자만 쓰면 분으로 읽는다. 분만 넣던 예전 습관이 그대로 통해야 한다
+     "5:30" → 5분 30초
+     ":45"  → 45초     분을 비워도 된다
+   전각 숫자·전각 콜론은 한글 입력기에서 흔히 섞여 들어오므로 반각으로 바꿔 받는다. */
+const MAX_MIN = 600;
+/* 틀린 이유를 나눠 돌려준다 — 안내 문구를 상황에 맞게 고를 수 있어야 짧게 쓸 수 있다.
+   성공 { ms } / 실패 { bad:"format" | "zero" | "range" } */
+function durationParts(text){
+  const s = String(text == null ? "" : text)
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/：/g, ":")
+    .replace(/\s+/g, "");
+  if(!s) return { bad:"format" };
+  let ms;
+  const m = /^(\d*):(\d{1,2})$/.exec(s);
+  if(m){
+    const sec = Number(m[2]);
+    if(sec > 59) return { bad:"format" };           // "5:70" 은 형식 오타로 본다
+    ms = ((m[1] === "" ? 0 : Number(m[1])) * 60 + sec) * 1000;
+  }else if(/^\d+$/.test(s)){
+    ms = Number(s) * 60000;
+  }else{
+    return { bad:"format" };
+  }
+  if(ms <= 0) return { bad:"zero" };
+  if(ms > MAX_MIN * 60000) return { bad:"range" };
+  return { ms };
+}
+/* 값만 필요한 곳을 위한 얇은 겉면 */
+function parseDuration(text){
+  const p = durationParts(text);
+  return p.ms === undefined ? null : p.ms;
+}
+/* 초가 0이면 "5분 집중" — 프리셋 이름과 형식이 같아야 한다 */
+function durationName(ms){
+  const total = Math.round(ms / 1000), m = Math.floor(total / 60), s = total % 60;
+  return (m && s ? `${m}분 ${s}초` : m ? `${m}분` : `${s}초`) + " 집중";
+}
+const durationQueue = ms => [{ name: durationName(ms), ms, kind: "focus" }];
+const presetQueue = min => durationQueue(min * 60000);
 
 function stepQueue(){
   return state.stepList
@@ -1228,11 +1271,22 @@ $("resetBtn").onclick = guardedReset;
 $("nextBtn").onclick  = next;
 $("fsBtn").onclick    = toggleFullscreen;
 
-$("customBtn").onclick = () => {
-  const m = Number($("customMin").value);
-  if(Number.isFinite(m) && m > 0 && m <= 600) loadQueue(presetQueue(m), true);
+/* 이 안내는 시간이 지나도 사라지지 않는다 — 고쳐야 할 입력이 아직 칸에 남아 있기 때문이다.
+   다시 입력하기 시작하면 지운다. (템플릿·정각 종료 쪽 안내는 결과 보고라서 저절로 사라진다) */
+const customMsg = text => { $("customMsg").textContent = text; };
+$("customTime").addEventListener("input", () => customMsg(""));
+const CUSTOM_HELP = {
+  format: "분 또는 분:초 (예: 5 · 5:30 · :45)",
+  zero:   "1초 이상 넣어주세요",
+  range:  `최대 ${MAX_MIN}분까지 넣을 수 있습니다`
 };
-$("customMin").addEventListener("keydown", e => { if(e.key === "Enter") $("customBtn").click(); });
+$("customBtn").onclick = () => {
+  const p = durationParts($("customTime").value);
+  if(p.ms === undefined){ customMsg(CUSTOM_HELP[p.bad]); return; }
+  customMsg("");
+  loadQueue(durationQueue(p.ms), true);
+};
+$("customTime").addEventListener("keydown", e => { if(e.key === "Enter") $("customBtn").click(); });
 
 // 정각 종료 — 남은 시간이 아니라 끝나는 시각을 입력한다
 let untilMsgTimer = null;
