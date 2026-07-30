@@ -18,7 +18,7 @@
 
 ## 산출물
 
-`focus-timer.html` — 단일 파일, 1396줄 / 66.2KB.
+`focus-timer.html` — 단일 파일, 1435줄 / 68.2KB.
 
 ## 설계
 
@@ -87,7 +87,7 @@ const state = {
   status: 'idle' | 'running' | 'paused' | 'finished',
   remainingMs, endsAt, totalMs,  // totalMs = 현재 단계 전체 길이(게이지 기준)
   settings: { theme, display, baseColor, sound, volume, autoAdvance, panelOpen,
-              preWarn, overrun, showClock },
+              preWarn, overrun, showClock, openSecs },   // openSecs = 펼쳐 둔 설정 구획 id 배열
   pomodoro: { focusMin, breakMin, longBreakMin, totalRounds, roundsPerLongBreak },
   stepList: [{ name, minutes }]  // 사용자가 편집하는 원본
 };
@@ -112,6 +112,23 @@ const state = {
 - CSS Grid 2열. 패널은 `margin-right: -352px` + `transition`으로 여닫음(닫히면 그리드 트랙이 0으로 줄어 스테이지가 전체 폭 사용).
 - 조작 버튼은 실행 중 유휴 3초 후 흐려지고(`body.dim-controls`), 마우스 이동 시 복귀.
 - 860px 미만에서는 패널이 스테이지 위로 겹쳐 뜨는 오버레이로 전환.
+
+**설정 패널 — 접이식 구획**
+
+기능이 늘면서 패널을 열면 다섯 구획이 한꺼번에 쏟아져 나와 수업 중에 원하는 항목을 찾기 어려웠다.
+평소에는 **제목만** 보이고, 제목을 눌러야 그 안이 펼쳐지도록 바꿨다.
+
+- 직접 만든 아코디언 대신 `<details>`/`<summary>` 를 썼다. 여닫는 동작·`Enter`/`Space` 조작·
+  포커스 처리·스크린리더의 펼침 상태 안내가 전부 브라우저 기본으로 따라온다. JS 는 상태 저장만 한다.
+- **동시에 여러 개를 펼 수 있게** 두었다. 하나만 열리는 아코디언은 "단계를 보면서 소리를 끄는" 식의
+  흔한 조작에서 매번 되짚어야 해서 오히려 번거롭다.
+- 열어 둔 구획은 `settings.openSecs` 에 id 배열로 저장한다. 저장값은 `SEC_IDS` 로 걸러 모르는 id 를 버리고,
+  배열이 아니면 기본값(`["secQuick"]`)으로 떨어뜨린다 — openSecs 가 없던 예전 저장값도 그대로 동작한다.
+- `toggle` 이벤트 처리기는 **값이 실제로 달라졌을 때만** 저장한다. `applySettings` 가 복원하며
+  `el.open` 을 건드릴 때 되돌아 저장하는 것을 막고, 아무것도 바꾸지 않은 첫 실행에서
+  localStorage 를 쓰지 않는 성질(OS 다크모드 자동 감지)을 유지하기 위해서다.
+- 제목 글자는 `.78rem` 대문자 라벨에서 `1.06rem` 굵은 글씨로 키웠다 — 이제 이게 유일한 조작 대상이다.
+- 패널 위쪽 `padding-top:54px` 는 `position:fixed` 인 ⚙설정 버튼이 첫 제목을 덮지 않게 비워 둔 자리다.
 
 **큰 숫자 처리**
 - `font-size: calc(var(--gauge) * .235)` — 게이지 크기(`min(68vmin, 660px)`)에 비례해 원 안에 맞춘다.
@@ -305,7 +322,7 @@ body[data-warn="danger"] { --live: var(--danger); }
 
 ## 검증 결과
 
-### 자동 검증 — 통과 (245건)
+### 자동 검증 — 통과 (252건)
 
 DOM을 스텁으로 대체해 node에서 엔진을 실행했다. `AudioContext` 스텁이 울린 음의 주파수를
 기록하므로 알림음 종류까지 검증된다. **연속 실행에서 전부 통과** (타이밍 흔들림 없음). 확인된 항목:
@@ -317,6 +334,11 @@ DOM을 스텁으로 대체해 node에서 엔진을 실행했다. `AudioContext` 
 - 순환 순서 `ring→disk→number→ring`, 알 수 없는 값 무시, `html[data-display]` 반영
 - 링 모드는 `stroke-dashoffset`, 원판 모드는 부채꼴 경로만 갱신 (절반=180°, 가득=완전한 원, 0=빈 경로)
 - **설정 이전 4경우**: `minimal:true→number` / `minimal:false→ring` / 이미 `display` 있음 / 손상된 값→ring
+
+**설정 패널 접이식 구획**
+- 기본값은 `빠른 시작` 하나만 펼침, 나머지는 제목만
+- 펼친 구획만 복원, 여닫은 상태가 저장·복원됨
+- 모르는 id 는 버림 / 배열이 아닌 손상된 값 → 기본값 / **openSecs 가 없는 예전 저장값도 기본값으로 동작**
 
 **기본 타이머 색상**
 - `isHex`: 3자리·`#` 없음·색이름·빈값·`null`·hex 아닌 문자 모두 거부
