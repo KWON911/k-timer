@@ -20,6 +20,12 @@
 
 `focus-timer.html` — 단일 파일, 1565줄 / 75.4KB.
 
+`index.html` — GitHub Pages 용 리다이렉트 한 장 (https://kwon911.github.io/k-timer/).
+Pages 는 폴더 주소에서 `index.html` 을 찾는데, 본체 이름을 `index.html` 로 바꾸면
+USB 배포에서 무슨 파일인지 알 수 없고 문서·커밋에 적힌 이름도 전부 어긋난다.
+그래서 이름은 지키고 넘겨보내는 파일만 따로 뒀다. `meta refresh` 가 막히는 환경을 위해
+손수 누를 링크도 함께 둔다. 상대 경로라 외부 요청은 여전히 0건이다.
+
 ## 설계
 
 ### 0. 정각 종료 모드 (벽시계 기준)
