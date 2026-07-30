@@ -26,11 +26,12 @@ html[data-theme="dark"]{
 }
 
 /* 시간·게이지·플래시 전용 색(--live)의 우선순위. 패널 버튼 등 UI 색(--accent)은 건드리지 않는다.
-   1) 기본            → 강조색
-   2) 단계 색상 지정   → --step (JS 가 body 에 인라인으로 넣는다)
-   3) 남은 시간 경고   → 아래 [data-warn] 규칙이 특정성으로 이긴다 = 경고가 색상 지정을 덮는다
-   경고를 절대 가리지 않는 것이 이 순서의 목적이다. */
-body                     { --live:var(--step, var(--accent)); }
+   1) 테마 강조색      → --accent
+   2) 사용자 기본 색상 → --base (색상 선택기로 고른 값)
+   3) 단계 색상 지정   → --step
+   4) 남은 시간 경고   → 아래 [data-warn] 규칙이 특정성으로 이긴다 = 경고가 모든 색을 덮는다
+   경고를 절대 가리지 않는 것이 이 순서의 목적이다. --step/--base 는 JS 가 인라인으로 넣는다. */
+body                     { --live:var(--step, var(--base, var(--accent))); }
 body[data-warn="warn"]   { --live:var(--warn); }
 body[data-warn="danger"] { --live:var(--danger); }
 body[data-warn="over"]   { --live:var(--danger); }
@@ -117,6 +118,10 @@ input[type=text],input[type=number],input[type=time],select{
   border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0;
 }
 select{cursor:pointer}
+input[type=color]{
+  width:58px;height:36px;padding:3px;cursor:pointer;background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;
+}
 input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
 label{font-size:.9rem}
 
@@ -320,6 +325,13 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
       <option value="disk">원판 + 숫자 — 남은 양이 면적으로</option>
       <option value="number">숫자만 — 장식 없이 가장 크게</option>
     </select>
+
+    <label for="baseColor">기본 타이머 색상</label>
+    <div class="row" style="margin:6px 0 2px">
+      <input type="color" id="baseColor" aria-label="기본 타이머 색상 고르기">
+      <button id="baseReset" style="flex:1">테마 기본값으로</button>
+    </div>
+    <div class="total" id="baseMsg"></div>
     <div class="toggle"><label for="soundChk">종료 알림음</label><input type="checkbox" id="soundChk"></div>
     <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음</label><input type="checkbox" id="preWarnChk"></div>
     <div class="toggle"><label for="overrunChk">종료 후 초과 시간 표시 (+2:30)</label><input type="checkbox" id="overrunChk"></div>
@@ -365,6 +377,27 @@ const PALETTE = [
 ];
 const stepColor = i => PALETTE[i] ? PALETTE[i].css : "";
 
+/* 테마별 기본 강조색·배경색. CSS 의 --accent / --bg 와 같은 값을 유지해야 한다
+   (색상 선택기의 초기값과 명암비 계산에 쓰인다) */
+const THEME_COLORS = {
+  light: { accent: "#2563eb", bg: "#f3f5f8" },
+  dark:  { accent: "#5b93ff", bg: "#0d1016" }
+};
+const isHex = v => /^#[0-9a-fA-F]{6}$/.test(String(v || ""));
+
+/* WCAG 상대 휘도 → 명암비. 큰 글자는 3:1 이상이면 읽을 수 있다.
+   프로젝터에서 흐린 색을 골라 숫자가 안 보이는 사고를 미리 알려주기 위해 쓴다. */
+function luminance(hex){
+  const ch = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+function contrastRatio(a, b){
+  if(!isHex(a) || !isHex(b)) return 0;
+  const l1 = luminance(a), l2 = luminance(b);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
 /* 표시 방식. M 키가 이 순서로 순환한다 */
 const DISPLAYS = ["ring", "disk", "number"];
 const DISPLAY_NAMES = { ring: "링 + 숫자", disk: "원판 + 숫자", number: "숫자만" };
@@ -407,7 +440,8 @@ const state = {
   absoluteEnd: null,    // 정각 종료 모드의 목표 시각. 있으면 벽시계 기준으로 동작한다
   overrunFrom: null,    // 계획된 종료 시각. 있으면 남은 시간 대신 초과 시간(+MM:SS)을 센다
   settings: { theme:"light", display:"ring", sound:true, volume:0.6, autoAdvance:true,
-              panelOpen:false, preWarn:true, overrun:true, showClock:true },
+              panelOpen:false, preWarn:true, overrun:true, showClock:true,
+              baseColor:"" },   // "" = 테마 기본 강조색을 그대로 쓴다
   pomodoro: { focusMin:25, breakMin:5, longBreakMin:15, totalRounds:4, roundsPerLongBreak:4 },
   stepList: [ {name:"도입", minutes:5, color:0}, {name:"모둠 활동", minutes:15, color:2},
               {name:"발표·정리", minutes:10, color:4} ],
@@ -480,6 +514,7 @@ function load(){
     state.settings.display = "ring";
   }
   delete state.settings.minimal;
+  if(!isHex(state.settings.baseColor)) state.settings.baseColor = "";   // 손상된 값은 테마 기본값으로
   const steps = sanitizeSteps(read("steps", []));
   if(steps) state.stepList = steps;
   state.templates = sanitizeTemplates(read("templates", []));
@@ -959,7 +994,8 @@ function renderSteps(){
   wrap.innerHTML = "";
   state.stepList.forEach((s, i) => {
     const ci = Number(s.color) || 0;
-    const swatch = stepColor(ci) || "var(--accent)";
+    // '기본' 견본은 사용자가 고른 기본 색상을 그대로 보여준다
+    const swatch = stepColor(ci) || "var(--base, var(--accent))";
     const row = document.createElement("div");
     row.className = "step";
     row.innerHTML =
@@ -1029,6 +1065,7 @@ function applySettings(){
   document.documentElement.dataset.panel = s.panelOpen ? "open" : "closed";
   $("panelBtn").setAttribute("aria-expanded", String(s.panelOpen));
   $("dispSel").value = s.display;
+  applyBaseColor();
   $("soundChk").checked = s.sound;
   $("preWarnChk").checked = s.preWarn;
   $("overrunChk").checked = s.overrun;
@@ -1036,6 +1073,28 @@ function applySettings(){
   $("vol").value = s.volume;
   $("autoAdv").checked = s.autoAdvance;
 }
+/* 기본 타이머 색상 적용 + 명암비 안내.
+   경고색은 [data-warn] 규칙이 특정성으로 이기므로 여기서 신경 쓸 필요가 없다. */
+function applyBaseColor(){
+  const s = state.settings;
+  const theme = THEME_COLORS[s.theme] || THEME_COLORS.light;
+  if(isHex(s.baseColor)) document.body.style.setProperty("--base", s.baseColor);
+  else                   document.body.style.removeProperty("--base");
+
+  const effective = isHex(s.baseColor) ? s.baseColor : theme.accent;
+  $("baseColor").value = effective;
+
+  const ratio = contrastRatio(effective, theme.bg);
+  const msg = $("baseMsg");
+  if(!isHex(s.baseColor)){
+    msg.textContent = "테마 기본값 사용 중";
+  }else if(ratio < 3){
+    msg.textContent = `⚠ 배경과 명암비 ${ratio.toFixed(1)}:1 — 프로젝터에서 흐려 보일 수 있습니다 (3:1 이상 권장)`;
+  }else{
+    msg.textContent = `명암비 ${ratio.toFixed(1)}:1 — 잘 보입니다`;
+  }
+}
+
 function syncPomodoroInputs(){
   const p = state.pomodoro;
   $("pFocus").value = p.focusMin; $("pBreak").value = p.breakMin;
@@ -1238,6 +1297,16 @@ function cycleDisplay(){
 $("soundChk").onchange  = e => { state.settings.sound = e.target.checked; save(); };
 $("preWarnChk").onchange = e => { state.settings.preWarn = e.target.checked; save(); };
 $("clockChk").onchange   = e => { state.settings.showClock = e.target.checked; renderClock(); save(); };
+
+// 기본 타이머 색상 — input[type=color] 이 윈도우 색상 선택기를 띄운다
+$("baseColor").oninput = e => { setBaseColor(e.target.value); };
+$("baseReset").onclick = () => { setBaseColor(""); };
+function setBaseColor(v){
+  state.settings.baseColor = isHex(v) ? String(v).toLowerCase() : "";
+  applyBaseColor();
+  renderSteps();          // '기본' 견본 색을 새 값으로 다시 그린다
+  render(); save();
+}
 $("overrunChk").onchange = e => {
   state.settings.overrun = e.target.checked;
   if(!e.target.checked && state.overrunFrom){   // 끄면 즉시 표시를 걷는다
