@@ -18,7 +18,7 @@
 
 ## 산출물
 
-`index.html` — 단일 파일, 1857줄 / 90.4KB. 이것 하나가 전부다.
+`index.html` — 단일 파일, 1863줄 / 92.7KB. 이것 하나가 전부다.
 
 **왜 `index.html` 인가** — 처음에는 `focus-timer.html` 이었고, GitHub Pages 배포 때
 루트 주소용으로 `index.html` 리다이렉트를 한 장 더 뒀다. 그런데 그러면
@@ -289,6 +289,21 @@ body[data-ribbon="on"] .stage{ --rib:66px; padding-bottom:calc(2vmin + var(--rib
   localStorage 를 쓰지 않는 성질(OS 다크모드 자동 감지)을 유지하기 위해서다.
 - 제목 글자는 `.78rem` 대문자 라벨에서 `1.06rem` 굵은 글씨로 키웠다 — 이제 이게 유일한 조작 대상이다.
 - 패널 위쪽 `padding-top:54px` 는 `position:fixed` 인 ⚙설정 버튼이 첫 제목을 덮지 않게 비워 둔 자리다.
+
+**설정 패널 — 스크롤바와 ⚙설정 버튼 충돌 (사용자 스크린샷으로 발견)**
+
+구획을 여러 개(특히 5개 전부) 펼치면 패널 안 내용이 길어져 `overflow-y:auto` 가 실제
+스크롤바를 띄운다. 패널이 화면 오른쪽 끝에 딱 붙어 있어서, 그 스크롤바(윈도우 기준 16px 안팎)도
+화면 오른쪽 끝에 뜬다. `#panelBtn` 이 `right:12px` 이던 시절엔 버튼 오른쪽 끝이 그 스크롤바 영역
+(오른쪽 끝에서 16px 안쪽까지) 에 4px 정도 파고들어 시각적으로 겹쳐 보였다. 실측(`offsetWidth - clientWidth`)으로
+확인했다.
+
+- `#panelBtn` 을 `right:24px` 로 옮겼다. 스크롤바가 뜨든 안 뜨든 늘 여유가 남도록, 실측된 16px 스크롤바
+  폭보다 넉넉하게 잡은 값이다.
+- `.panel` 에 `scrollbar-gutter:stable` 도 추가했다 — 구획을 여닫으며 스크롤바가 생겼다 없어졌다 할 때
+  안쪽 내용 폭이 흔들리는 것을 막는다. 버튼 충돌 자체는 `right` 값 조정이 고치고, 이건 부수적인 다듬기다.
+- 겹침·좌표는 실제 브라우저에서 `panel.getBoundingClientRect()` 와 `panelBtn.getBoundingClientRect()` 로
+  재서 확인했다. 774건 레이아웃 스윕에도 ⚙설정 버튼이 뷰포트 밖으로 나가는지 검사를 추가했다.
 
 **큰 숫자 처리**
 - `font-size: calc(var(--gauge) * .235)` — 게이지 크기에 비례해 원 안에 맞춘다(`--gauge` 산출은 위 반응형 절 참고).

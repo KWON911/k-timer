@@ -275,6 +275,9 @@ label{font-size:.9rem}
   /* 위쪽 여백은 고정된 ⚙설정 버튼이 첫 제목을 가리지 않도록 비워 둔 자리다 */
   overflow-y:auto;padding:54px 18px 18px;display:flex;flex-direction:column;gap:4px;
   transition:margin-right .28s ease, opacity .2s;
+  /* 구획을 여닫아 스크롤바가 생겼다 없어졌다 할 때 안쪽 내용 폭이 흔들리지 않게
+     스크롤바 자리를 늘 비워 둔다 (지원하지 않는 브라우저에서는 그냥 무시된다) */
+  scrollbar-gutter:stable;
 }
 html[data-panel="closed"] .panel{margin-right:calc(-1 * var(--panelW) - 8px);opacity:0;pointer-events:none}
 
@@ -322,8 +325,11 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 }
 
 /* 패널 토글 버튼 — 우측 상단 고정 */
-/* z-index 는 패널(6)보다 위. 좁은 화면에서 패널이 겹쳐 뜰 때도 이 버튼으로 닫을 수 있어야 한다 */
-#panelBtn{position:fixed;top:12px;right:12px;z-index:7;box-shadow:var(--shadow)}
+/* z-index 는 패널(6)보다 위. 좁은 화면에서 패널이 겹쳐 뜰 때도 이 버튼으로 닫을 수 있어야 한다.
+   right:24px 인 이유 — 구획을 여러 개 펼치면 패널 안에 실제 스크롤바(윈도우 기준 16~17px)가
+   패널 오른쪽 끝(=화면 오른쪽 끝)에 나타난다. right:12px 이던 시절엔 그 스크롤바와 버튼이
+   4px 정도 겹쳐 보였다. 24px 로 두면 스크롤바가 뜨든 안 뜨든 늘 여유가 남는다. */
+#panelBtn{position:fixed;top:12px;right:24px;z-index:7;box-shadow:var(--shadow)}
 
 /* ─────────────────────────────────────────────────────────────
    5. 표시 방식 — ring / disk / number. CSS 만으로 갈아끼운다
