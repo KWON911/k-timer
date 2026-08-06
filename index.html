@@ -453,6 +453,7 @@ body[data-warn="warn"] .clock-wrap::after{
   .step{grid-template-columns:1fr 56px 30px auto;gap:6px}
   .field{grid-template-columns:1fr 92px}
   .controls button{padding:9px 13px}
+  .controls button.icon{padding:9px 11px}
   .primary{min-width:88px}
 }
 
@@ -469,6 +470,7 @@ body[data-warn="warn"] .clock-wrap::after{
   /* 조작 버튼을 한 줄에 붙여 둔다. 두 줄로 넘어가면 그만큼 게이지가 밀려
      아래가 잘리는데, --chrome 은 줄 수를 미리 알 수 없다 */
   .controls button{padding:8px 12px;font-size:.88rem}
+  .controls button.icon{padding:8px 10px;font-size:1.1em}
   .controls{gap:8px}
   .primary{min-width:92px}
 }
@@ -1086,6 +1088,9 @@ function next(){
   stopTick();
   armStep(state.index + 1);
   wasRunning ? start() : render();
+  // start()/render() 가 각자 안내를 쓸 수 있으므로, 어느 쪽이든 뒤에서 이 메시지로 덮어써
+  // 수동으로 넘어간 단계 이름이 항상 마지막에 읽히게 한다 (Task 6 이 세운 순서 규칙과 동일)
+  announce(`${state.queue[state.index].name} 시작, ${durationLabel(state.totalMs)}`);
 }
 /* 실행 중이거나 일시정지 상태일 때 남은 시간을 늘린다.
    totalMs 도 같이 늘려야 게이지 비율(remainingMs/totalMs)이 100%를 넘지 않는다.
@@ -1938,15 +1943,17 @@ SEC_IDS.forEach(id => {
 });
 
 function togglePanel(force){
+  const wasOpen = state.settings.panelOpen;
   const opening = typeof force === "boolean" ? force : !state.settings.panelOpen;
   state.settings.panelOpen = opening;
   applySettings(); save();
   // 여는 쪽: 패널 안 첫 포커스 가능 요소(대개 첫 구획의 제목)로 보낸다.
-  // 닫는 쪽: 항상 트리거(탭)로 되돌려 포커스가 사라진 콘텐츠 안에 남지 않게 한다.
+  // 닫는 쪽: 패널이 실제로 열려 있었을 때만 트리거(탭)로 되돌린다.
+  // (이미 닫혀 있는데 Esc 등으로 또 닫힐 때는 포커스를 건드리지 않는다.)
   if(opening){
     const first = document.querySelector("#panel summary, #panel input, #panel button, #panel select");
     if(first) first.focus();
-  }else{
+  }else if(wasOpen){
     $("panelBtn").focus();
   }
 }
@@ -1993,10 +2000,18 @@ document.addEventListener("keydown", e => {
   const focusables = Array.from($("panel").querySelectorAll(
     'summary, input:not([disabled]), select, button:not([disabled])'
   )).filter(el => (el.tagName === "SUMMARY" || el.closest("details[open]")) && el.offsetParent !== null);
+  // #panelBtn 은 패널을 닫는 유일한 버튼인데 DOM 순서상 #panel 보다 앞, 문서 맨 위에 있다.
+  // 그냥 배열 끝에 붙이기만 하면 "패널 안 실제 마지막 요소 → panelBtn", "panelBtn → 패널 안 실제
+  // 마지막 요소" 두 구간은 DOM 상 서로 이웃하지 않아 브라우저 기본 Tab 이동으로는 이어지지 않고
+  // 그대로 문서 밖(주소창 등)으로 새어나간다. 그래서 이 두 경계도 명시적으로 이어준다.
+  focusables.push($("panelBtn"));
   if(!focusables.length) return;
   const first = focusables[0], last = focusables[focusables.length - 1];
+  const lastInPanel = focusables[focusables.length - 2];   // panelBtn 바로 앞, 패널 안 실제 마지막 요소
   if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(e.shiftKey && document.activeElement === last){ e.preventDefault(); (lastInPanel || first).focus(); }
   else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  else if(!e.shiftKey && document.activeElement === lastInPanel){ e.preventDefault(); last.focus(); }
 });
 
 /* ── 유휴 시 조작 버튼 흐리기 ───────────────────────────────── */
