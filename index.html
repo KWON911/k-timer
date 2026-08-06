@@ -1004,6 +1004,7 @@ function start(){
   state.endsAt = state.absoluteEnd || (Date.now() + state.remainingMs);
   state.status = "running";
   startTick(); acquireWake(); render();
+  announce("시작함");   // render() 의 분당 안내를 덮어써야 하므로 반드시 render() 다음
 }
 
 /* 특정 시각까지 재는 타이머. target: Date */
@@ -1030,6 +1031,7 @@ function pause(){
   state.remainingMs = Math.max(0, state.endsAt - Date.now());
   state.endsAt = null; state.status = "paused";
   stopTick(); releaseWake(); render();
+  announce("일시정지함");
 }
 const toggle = () => state.status === "running" ? pause() : start();
 
@@ -1058,6 +1060,7 @@ function finish(){
   state.remainingMs = 0; state.endsAt = null;
   noteOverride = "모든 단계가 끝났습니다";
   render();
+  announce("모든 단계가 끝났습니다");
 }
 
 /* 계획된 종료 시각 이후로 흐른 시간을 세기 시작한다.
@@ -1097,12 +1100,14 @@ function onStepEnd(){
     state.endsAt = plannedEnd + state.remainingMs;
     state.status = "running";
     startTick(); render();
+    announce(`${state.queue[state.index].name} 시작, ${durationLabel(state.totalMs)}`);
   }else{
     releaseWake();
     armStep(state.index + 1);
     state.status = "paused";
     noteOverride = "다음 단계 준비됨 — 시작을 누르세요";
     render();
+    announce("다음 단계 준비됨, 시작을 누르세요");
     beginOverrun(plannedEnd);      // 전환에 걸린 시간도 보여준다
   }
 }
@@ -1235,6 +1240,12 @@ function fmt(ms, down = true){
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+/* aria-live 영역에 문구를 채운다. render() 의 분당 안내와 같은 요소를 쓰므로,
+   상태 전환 안내는 항상 render() 호출 "다음"에 불러야 분당 안내에 덮이지 않는다. */
+function announce(text){
+  $("live").textContent = text;
+}
+
 function render(){
   const st = state, cur = st.queue[st.index];
 
@@ -1299,7 +1310,7 @@ function render(){
   const min = Math.ceil(st.remainingMs / 60000);
   if(st.status === "running" && min !== lastMinute){
     lastMinute = min;
-    $("live").textContent = `남은 시간 약 ${min}분`;
+    announce(`남은 시간 약 ${min}분`);
   }
 
   // 실행 중인 스텝 행 강조
