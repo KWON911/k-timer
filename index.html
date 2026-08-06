@@ -619,6 +619,7 @@ body[data-warn="warn"] .clock-wrap::after{
     <div class="total" id="baseMsg"></div>
     <div class="toggle"><label for="soundChk">종료 알림음 (단계 끝날 때 소리)</label><input type="checkbox" id="soundChk"></div>
     <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음 (낮은 소리 두 번)</label><input type="checkbox" id="preWarnChk"></div>
+    <div class="toggle"><label for="countdownChk">종료 10초 전부터 매초 효과음</label><input type="checkbox" id="countdownChk"></div>
     <div class="toggle"><label for="overrunChk">종료 후 초과 시간 표시 (+2:30)</label><input type="checkbox" id="overrunChk"></div>
     <div class="toggle"><label for="clockChk">현재 시각 · 종료 예정 시각 표시</label><input type="checkbox" id="clockChk"></div>
     <label for="vol">음량</label>
@@ -730,6 +731,7 @@ const state = {
   settings: { theme:"light", display:"ring", sound:true, volume:0.6, autoAdvance:true,
               panelOpen:false, preWarn:true, overrun:true, showClock:true,
               baseColor:"",     // "" = 테마 기본 강조색을 그대로 쓴다
+              countdownBeep:true,   // 종료 10초 전부터 매초 효과음, 기본 켬
               openSecs:["secQuick"],     // 펼쳐 둔 설정 구획. 나머지는 제목만 보인다
               quickName:"" },   // 빠른 시작 제목을 교사가 고쳐 쓴 값. "" = 길이로 만든 기본 이름
   pomodoro: { focusMin:25, breakMin:5, longBreakMin:15, totalRounds:4, roundsPerLongBreak:4 },
@@ -805,6 +807,7 @@ function load(){
   }
   delete state.settings.minimal;
   if(!isHex(state.settings.baseColor)) state.settings.baseColor = "";   // 손상된 값은 테마 기본값으로
+  state.settings.countdownBeep = typeof state.settings.countdownBeep === "boolean" ? state.settings.countdownBeep : true;
   // 문자열이 아니면(손상된 저장값) 지정하지 않은 것으로 본다. 길이는 제한하지 않는다
   state.settings.quickName = typeof state.settings.quickName === "string"
     ? cleanName(state.settings.quickName) : "";
@@ -952,6 +955,12 @@ function chime(kind){
     [0, 0.16].forEach(t => beep(587.33, t, 0.14, v * 0.55));
     return;
   }
+  // 10초 카운트다운 틱 — 예고음(낮은 음 두 번)·종료음(상승 화음)과 겹치지 않는
+  // 짧고 높은 단발음. 매초 울리므로 아주 짧게(0.07s) 끊는다.
+  if(kind === "tick"){
+    beep(1046.5, 0, 0.07, v * 0.5);
+    return;
+  }
   const notes = kind === "final" ? [523.25, 659.25, 783.99, 1046.50] : [880, 1108.73, 1318.51];
   notes.forEach((f, i) => beep(f, i * 0.17, kind === "final" ? 0.55 : 0.36, v));
 }
@@ -975,6 +984,7 @@ function releaseWake(){
    ══════════════════════════════════════════════════════════════ */
 let tickId = null;
 let preWarned = false;             // 이번 단계에서 30초 예고음을 이미 울렸는가
+let lastBeepSecond = 0;            // 10초 카운트다운에서 마지막으로 튼 초(0 = 아직 없음)
 const startTick = () => { stopTick(); tickId = setInterval(tick, 200); };
 const stopTick  = () => { if(tickId){ clearInterval(tickId); tickId = null; } };
 
@@ -983,7 +993,7 @@ function armStep(i){
   const s = state.queue[i];
   state.totalMs = state.remainingMs = s ? s.ms : 0;
   state.endsAt = null;
-  state.overrunFrom = null; preWarned = false;
+  state.overrunFrom = null; preWarned = false; lastBeepSecond = 0;
   // 정각 종료 모드는 벽시계 기준이므로, 되감을 때도 목표 시각까지 다시 계산한다
   if(state.absoluteEnd) state.remainingMs = Math.max(0, state.absoluteEnd - Date.now());
 }
@@ -1090,6 +1100,14 @@ function tick(){
   if(!preWarned && state.settings.preWarn && state.totalMs > 45000 && state.remainingMs <= 30000){
     preWarned = true;
     chime("pre");
+  }
+  // 10초 이하 구간(기존 danger 임계값 재사용)에서 초 경계를 지날 때마다 한 번씩
+  if(state.settings.countdownBeep && state.remainingMs <= 10000){
+    const secLeft = Math.ceil(state.remainingMs / 1000);
+    if(secLeft !== lastBeepSecond && secLeft > 0){
+      lastBeepSecond = secLeft;
+      chime("tick");
+    }
   }
   render();
 }
@@ -1551,6 +1569,7 @@ function applySettings(){
   applyBaseColor();
   $("soundChk").checked = s.sound;
   $("preWarnChk").checked = s.preWarn;
+  $("countdownChk").checked = s.countdownBeep;
   $("overrunChk").checked = s.overrun;
   $("clockChk").checked = s.showClock;
   $("vol").value = s.volume;
@@ -1809,6 +1828,7 @@ function cycleDisplay(){
 }
 $("soundChk").onchange  = e => { state.settings.sound = e.target.checked; save(); };
 $("preWarnChk").onchange = e => { state.settings.preWarn = e.target.checked; save(); };
+$("countdownChk").onchange = e => { state.settings.countdownBeep = e.target.checked; save(); };
 $("clockChk").onchange   = e => { state.settings.showClock = e.target.checked; renderClock(); save(); };
 
 // 기본 타이머 색상 — input[type=color] 이 윈도우 색상 선택기를 띄운다
