@@ -619,6 +619,12 @@ body[data-warn="warn"] .clock-wrap::after{
       <button id="baseReset" style="flex:1">테마 기본값으로</button>
     </div>
     <div class="total" id="baseMsg"></div>
+    <label for="textColor">글자색</label>
+    <div class="row" style="margin:6px 0 2px">
+      <input type="color" id="textColor" aria-label="글자색 고르기">
+      <button id="textReset" style="flex:1">테마 기본값으로</button>
+    </div>
+    <div class="total" id="textMsg"></div>
     <div class="toggle"><label for="soundChk">종료 알림음 (단계 끝날 때 소리)</label><input type="checkbox" id="soundChk"></div>
     <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음 (낮은 소리 두 번)</label><input type="checkbox" id="preWarnChk"></div>
     <div class="toggle"><label for="countdownChk">종료 10초 전부터 매초 효과음</label><input type="checkbox" id="countdownChk"></div>
@@ -668,8 +674,8 @@ const stepColor = i => PALETTE[i] ? PALETTE[i].css : "";
 /* 테마별 기본 강조색·배경색. CSS 의 --accent / --bg 와 같은 값을 유지해야 한다
    (색상 선택기의 초기값과 명암비 계산에 쓰인다) */
 const THEME_COLORS = {
-  light: { accent: "#2563eb", bg: "#f3f5f8" },
-  dark:  { accent: "#5b93ff", bg: "#0d1016" }
+  light: { accent: "#2563eb", bg: "#f3f5f8", text: "#0E1420" },
+  dark:  { accent: "#5b93ff", bg: "#0d1016", text: "#EDF1F8" }
 };
 const isHex = v => /^#[0-9a-fA-F]{6}$/.test(String(v || ""));
 
@@ -734,6 +740,7 @@ const state = {
               panelOpen:false, preWarn:true, overrun:true, showClock:true,
               baseColor:"",     // "" = 테마 기본 강조색을 그대로 쓴다
               countdownBeep:true,   // 종료 10초 전부터 매초 효과음, 기본 켬
+              textLight:"", textDark:"",   // "" = 테마 기본 글자색을 그대로 쓴다. 테마별로 따로 저장한다
               openSecs:["secQuick"],     // 펼쳐 둔 설정 구획. 나머지는 제목만 보인다
               quickName:"" },   // 빠른 시작 제목을 교사가 고쳐 쓴 값. "" = 길이로 만든 기본 이름
   pomodoro: { focusMin:25, breakMin:5, longBreakMin:15, totalRounds:4, roundsPerLongBreak:4 },
@@ -810,6 +817,8 @@ function load(){
   delete state.settings.minimal;
   if(!isHex(state.settings.baseColor)) state.settings.baseColor = "";   // 손상된 값은 테마 기본값으로
   state.settings.countdownBeep = typeof state.settings.countdownBeep === "boolean" ? state.settings.countdownBeep : true;
+  if(!isHex(state.settings.textLight)) state.settings.textLight = "";
+  if(!isHex(state.settings.textDark))  state.settings.textDark  = "";
   // 문자열이 아니면(손상된 저장값) 지정하지 않은 것으로 본다. 길이는 제한하지 않는다
   state.settings.quickName = typeof state.settings.quickName === "string"
     ? cleanName(state.settings.quickName) : "";
@@ -1591,6 +1600,7 @@ function applySettings(){
   $("panelBtn").setAttribute("aria-expanded", String(s.panelOpen));
   $("dispSel").value = s.display;
   applyBaseColor();
+  applyTextColor();
   $("soundChk").checked = s.sound;
   $("preWarnChk").checked = s.preWarn;
   $("countdownChk").checked = s.countdownBeep;
@@ -1625,6 +1635,36 @@ function applyBaseColor(){
   }else{
     msg.textContent = `명암비 ${ratio.toFixed(1)}:1 — 잘 보입니다`;
   }
+}
+/* 글자색 적용 + 명암비 안내. 기본 타이머 색상과 달리 라이트/다크를 따로 저장한다 —
+   글자색은 배경과 짝을 이뤄야 읽히므로, 값 하나를 공유하면 테마 전환 시 글자가
+   안 보이는 사고로 바로 이어진다. 본문 글자 기준(4.5:1)은 큰 숫자 기준(3:1)보다 엄격하다. */
+function applyTextColor(){
+  const s = state.settings;
+  const theme = THEME_COLORS[s.theme] || THEME_COLORS.light;
+  const key = s.theme === "dark" ? "textDark" : "textLight";
+  const custom = s[key];
+
+  if(isHex(custom)) document.body.style.setProperty("--text", custom);
+  else               document.body.style.removeProperty("--text");
+
+  const effective = isHex(custom) ? custom : theme.text;
+  $("textColor").value = effective;
+
+  const ratio = contrastRatio(effective, theme.bg);
+  const msg = $("textMsg");
+  if(!isHex(custom)){
+    msg.textContent = "테마 기본값 사용 중";
+  }else if(ratio < 4.5){
+    msg.textContent = `⚠ 배경과 명암비 ${ratio.toFixed(1)}:1 — 글자가 흐려 보일 수 있습니다 (4.5:1 이상 권장)`;
+  }else{
+    msg.textContent = `명암비 ${ratio.toFixed(1)}:1 — 잘 보입니다`;
+  }
+}
+function setTextColor(v){
+  const key = state.settings.theme === "dark" ? "textDark" : "textLight";
+  state.settings[key] = isHex(v) ? v : "";
+  applyTextColor(); save();
 }
 
 function syncPomodoroInputs(){
@@ -1866,6 +1906,8 @@ function setBaseColor(v){
   renderSteps();          // '기본' 견본 색을 새 값으로 다시 그린다
   render(); save();
 }
+$("textColor").oninput = e => { setTextColor(e.target.value); };
+$("textReset").onclick = () => { setTextColor(""); };
 $("overrunChk").onchange = e => {
   state.settings.overrun = e.target.checked;
   if(!e.target.checked && state.overrunFrom){   // 끄면 즉시 표시를 걷는다
