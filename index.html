@@ -323,7 +323,7 @@ details.sec-quiet>summary{font-size:.94rem}
       padding:4px;border-radius:8px;border:1px solid transparent}
 .step.active{border-color:var(--accent);background:var(--accent-soft)}
 .step .mini{display:flex;gap:2px}
-.step .mini button{padding:6px 7px;font-size:.8rem;line-height:1;border-radius:6px}
+.step .mini button{padding:8px 9px;font-size:.8rem;line-height:1;border-radius:6px}
 /* 색상 견본 — 클릭하면 팔레트를 순환한다. 항상 그 단계에 실제로 쓰이는 색을 보여준다 */
 .step .swatch{padding:0;height:26px;border-radius:6px}
 .step .swatch:hover{border-color:var(--text)}
@@ -399,6 +399,16 @@ html[data-display="number"] #time.long{font-size:min(18vmin,15rem)}
 #flash.on{animation:flash 1.5s ease-in-out}
 @keyframes pulse{50%{transform:scale(1.045)}}
 body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
+/* A4 — 10초 전(danger)은 펄스 애니메이션으로 색맹이어도 알아채지만, 1분 전(warn)은
+   색상 변화뿐이었다. 카운터 오른쪽 위에 정적인 삼각형을 그려 애니메이션 없이도
+   구분되게 한다(prefers-reduced-motion 과 무관하게 항상 보인다) */
+body[data-warn="warn"] .clock-wrap::after{
+  content:"";
+  position:absolute; top:8%; right:8%;
+  width:9%; aspect-ratio:1; max-width:20px; max-height:20px; min-width:10px; min-height:10px;
+  background:var(--warn);
+  clip-path:polygon(50% 6%, 6% 94%, 94% 94%);
+}
 
 @media (prefers-reduced-motion:reduce){
   #flash.on{animation:none;opacity:.28}
@@ -439,7 +449,6 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
   html[data-panel="open"] .stage{--pw:0px}
   .step{grid-template-columns:1fr 56px 30px auto;gap:6px}
   .field{grid-template-columns:1fr 92px}
-  .step .mini button{padding:8px 9px}     /* 손가락으로 누를 수 있는 크기 */
   .controls button{padding:9px 13px}
   .primary{min-width:88px}
 }
