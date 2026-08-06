@@ -1873,9 +1873,12 @@ document.addEventListener("keydown", e => {
 const isNarrowPanel = () => window.matchMedia("(max-width:680px)").matches;
 document.addEventListener("keydown", e => {
   if(e.key !== "Tab" || !state.settings.panelOpen || !isNarrowPanel()) return;
-  const focusables = $("panel").querySelectorAll(
+  // 실제로 Tab 으로 닿을 수 있는 요소만 남긴다: summary 는 구획이 닫혀 있어도 항상 포커스 가능하지만,
+  // 그 외 요소는 부모 details 가 열려 있어야 하고, hidden 등으로 렌더링되지 않은 요소(예: tplFile)는 제외한다.
+  // 그렇지 않으면 first/last 가 실제로는 포커스될 수 없는 요소를 가리켜 트랩 경계가 어긋날 수 있다.
+  const focusables = Array.from($("panel").querySelectorAll(
     'summary, input:not([disabled]), select, button:not([disabled])'
-  );
+  )).filter(el => (el.tagName === "SUMMARY" || el.closest("details[open]")) && el.offsetParent !== null);
   if(!focusables.length) return;
   const first = focusables[0], last = focusables[focusables.length - 1];
   if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
