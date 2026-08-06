@@ -528,6 +528,8 @@ body[data-warn="warn"] .clock-wrap::after{
   <div class="controls">
     <button id="startBtn" class="primary">시작</button>
     <button id="resetBtn" title="초기화 (R)">초기화</button>
+    <button id="addTenSecBtn" title="10초 추가">+10초</button>
+    <button id="addOneMinBtn" title="1분 추가">+1분</button>
     <button id="nextBtn" title="다음 단계 (N)">다음 ▶</button>
     <button id="fsBtn" title="전체화면 (F)">⛶ 전체화면</button>
   </div>
@@ -1073,6 +1075,24 @@ function next(){
   armStep(state.index + 1);
   wasRunning ? start() : render();
 }
+/* 실행 중이거나 일시정지 상태일 때 남은 시간을 늘린다.
+   totalMs 도 같이 늘려야 게이지 비율(remainingMs/totalMs)이 100%를 넘지 않는다.
+   absoluteEnd(이 시각까지 모드)가 있으면 목표 시각 자체를 밀어 "이 시각까지"라는
+   의미를 유지한다. running 중이면 endsAt 도 같이 밀어 마감시각 기준 엔진과 어긋나지 않게 한다. */
+function addTime(ms){
+  if(state.status !== "running" && state.status !== "paused") return;
+  const wasWarn = state.remainingMs <= 60000, wasDanger = state.remainingMs <= 10000;
+  state.remainingMs += ms;
+  state.totalMs += ms;
+  if(state.absoluteEnd) state.absoluteEnd += ms;
+  if(state.status === "running") state.endsAt += ms;
+  // 경고 구간을 벗어났으면 예고음/카운트다운 플래그를 리셋해, 나중에 다시 그 구간에
+  // 들어왔을 때 정상적으로 다시 울리게 한다
+  if(wasWarn && state.remainingMs > 60000) preWarned = false;
+  if(wasDanger && state.remainingMs > 10000) lastBeepSecond = 0;
+  render();
+  announce(`${ms >= 60000 ? Math.round(ms / 60000) + "분" : Math.round(ms / 1000) + "초"} 추가함, 남은 시간 ${fmt(state.remainingMs)}`);
+}
 function finish(){
   stopTick(); releaseWake();
   state.status = "finished";
@@ -1330,6 +1350,8 @@ function render(){
   $("startBtn").textContent = st.status === "running" ? "일시정지" :
                               st.status === "finished" ? "다시 시작" : "시작";
   $("nextBtn").disabled = st.index >= st.queue.length - 1 && st.status === "finished";
+  const canAddTime = st.status === "running" || st.status === "paused";
+  $("addTenSecBtn").disabled = $("addOneMinBtn").disabled = !canAddTime;
   document.querySelectorAll("#presets button, #customBtn, #untilBtn, #runSteps, #runPomo, #fitBtn")
     .forEach(b => { b.disabled = st.status === "running"; });
 
@@ -1649,6 +1671,8 @@ $("stepName").addEventListener("blur", () => { nameComposing = false; commitStep
 
 $("startBtn").onclick = toggle;
 $("resetBtn").onclick = guardedReset;
+$("addTenSecBtn").onclick = () => addTime(10000);
+$("addOneMinBtn").onclick = () => addTime(60000);
 $("nextBtn").onclick  = next;
 $("fsBtn").onclick    = toggleFullscreen;
 
