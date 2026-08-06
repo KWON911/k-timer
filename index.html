@@ -253,6 +253,9 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 html[data-theme="dark"] .primary{color:#0C111C}
 .primary:hover:not(:disabled){background:var(--accent);filter:brightness(1.1)}
 .controls button{font-size:clamp(.9rem,1.8vmin,1.1rem)}
+/* 아이콘만 남은 보조 버튼 — 글리프가 작아 보이지 않게 살짝 키우고, 좌우 패딩을
+   좁혀 텍스트 버튼(시작/+10초/+1분)보다 시각적 무게를 줄인다 */
+.controls button.icon{font-size:1.3em;line-height:1;padding:8px 14px}
 
 input[type=text],input[type=number],input[type=time],select{
   font:inherit;background:var(--surface);color:var(--text);
@@ -527,11 +530,11 @@ body[data-warn="warn"] .clock-wrap::after{
 
   <div class="controls">
     <button id="startBtn" class="primary">시작</button>
-    <button id="resetBtn" title="초기화 (R)">초기화</button>
+    <button id="resetBtn" class="icon" title="초기화 (R)" aria-label="초기화">↺</button>
     <button id="addTenSecBtn" title="10초 추가">+10초</button>
     <button id="addOneMinBtn" title="1분 추가">+1분</button>
-    <button id="nextBtn" title="다음 단계 (N)">다음 ▶</button>
-    <button id="fsBtn" title="전체화면 (F)">⛶ 전체화면</button>
+    <button id="nextBtn" class="icon" title="다음 단계 (N)" aria-label="다음 단계">▶</button>
+    <button id="fsBtn" class="icon" title="전체화면 (F)" aria-label="전체화면">⛶</button>
   </div>
 </main>
 
