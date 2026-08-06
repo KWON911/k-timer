@@ -1824,8 +1824,17 @@ SEC_IDS.forEach(id => {
 });
 
 function togglePanel(force){
-  state.settings.panelOpen = typeof force === "boolean" ? force : !state.settings.panelOpen;
+  const opening = typeof force === "boolean" ? force : !state.settings.panelOpen;
+  state.settings.panelOpen = opening;
   applySettings(); save();
+  // 여는 쪽: 패널 안 첫 포커스 가능 요소(대개 첫 구획의 제목)로 보낸다.
+  // 닫는 쪽: 항상 트리거(탭)로 되돌려 포커스가 사라진 콘텐츠 안에 남지 않게 한다.
+  if(opening){
+    const first = document.querySelector("#panel summary, #panel input, #panel button, #panel select");
+    if(first) first.focus();
+  }else{
+    $("panelBtn").focus();
+  }
 }
 function toggleTheme(){
   state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
@@ -1855,6 +1864,22 @@ document.addEventListener("keydown", e => {
   if(e.key === "Escape"){ togglePanel(false); return; }
   const n = Number(e.key);
   if(n >= 1 && n <= PRESETS.length && state.status !== "running") loadQueue(presetQueue(PRESETS[n - 1]), true);
+});
+
+/* 패널이 화면 전체를 덮는 폭(680px 미만)에서는 사실상 모달이다.
+   Tab 이 패널 밖(가려진 스테이지)으로 새어나가지 않게 가둔다.
+   680px 이상(패널·스테이지가 나란히 보이는 레이아웃)에서는 트랩을 걸지 않는다 —
+   둘 다 보이는 상태에서 Tab 이동을 막을 이유가 없다. */
+const isNarrowPanel = () => window.matchMedia("(max-width:680px)").matches;
+document.addEventListener("keydown", e => {
+  if(e.key !== "Tab" || !state.settings.panelOpen || !isNarrowPanel()) return;
+  const focusables = $("panel").querySelectorAll(
+    'summary, input:not([disabled]), select, button:not([disabled])'
+  );
+  if(!focusables.length) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
 });
 
 /* ── 유휴 시 조작 버튼 흐리기 ───────────────────────────────── */
