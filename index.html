@@ -297,6 +297,9 @@ html[data-panel="closed"] .panel{margin-right:calc(-1 * var(--panelW) - 8px);opa
 .sec[open]>summary{margin-bottom:8px}
 .sec[open]>summary::after{transform:rotate(180deg)}
 .sec>summary:hover{background:var(--surface-2)}
+.sec-title{display:flex;flex-direction:column;gap:1px;min-width:0}
+.sec-sub{font-size:.76rem;font-weight:400;color:var(--muted)}
+.caption{font-size:.82rem;color:var(--muted);margin:10px 0 4px}
 .sec>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
 .preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -499,7 +502,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
 <aside class="panel" id="panel">
 
   <details class="sec" id="secQuick" open>
-    <summary>빠른 시작</summary>
+    <summary><span class="sec-title"><span>빠른 시작</span><span class="sec-sub">숫자만 넣으면 바로 시작</span></span></summary>
     <div class="preset-grid" id="presets"></div>
     <div class="row mt">
       <input type="text" id="customTime" maxlength="7" placeholder="분:초"
@@ -508,6 +511,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
               title="5 → 5분 / 5:30 → 5분 30초 / :45 → 45초">직접 입력한 시간으로 시작</button>
     </div>
     <div class="total" id="customMsg"></div>
+    <div class="caption">이 시간 하나만 잴 때</div>
     <div class="row mt">
       <input type="time" id="untilTime" aria-label="종료 시각" style="width:110px">
       <button id="untilBtn" style="flex:1" title="지정한 시각까지 (벽시계 기준)">이 시각까지</button>
@@ -516,7 +520,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
   </details>
 
   <details class="sec" id="secSteps">
-    <summary>활동</summary>
+    <summary><span class="sec-title"><span>활동</span><span class="sec-sub">도입 → 활동 → 정리, 순서대로 이어서</span></span></summary>
 
     <div class="row">
       <select id="tplSelect" aria-label="저장된 수업 템플릿" style="flex:1"></select>
@@ -541,6 +545,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
       <input type="checkbox" id="autoAdv">
     </div>
     <button id="runSteps" class="primary" style="width:100%">단계 순서대로 시작</button>
+    <div class="caption">짜둔 단계들을 이 시각에 맞춰 줄여서 시작</div>
     <div class="row mt">
       <input type="time" id="fitTime" aria-label="수업 종료 시각" style="width:110px">
       <button id="fitBtn" style="flex:1" title="남은 시간에 맞춰 각 단계를 비율대로 줄여 시작">종료 시각에 맞춰 압축 시작</button>
@@ -549,7 +554,7 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
   </details>
 
   <details class="sec" id="secPomo">
-    <summary>뽀모도로</summary>
+    <summary><span class="sec-title"><span>뽀모도로</span><span class="sec-sub">집중 25분·휴식 5분처럼 자동 반복</span></span></summary>
     <div class="field"><label for="pFocus">집중 (분)</label><input type="number" id="pFocus" min="1" max="180"></div>
     <div class="field"><label for="pBreak">휴식 (분)</label><input type="number" id="pBreak" min="1" max="60"></div>
     <div class="field"><label for="pLong">긴 휴식 (분)</label><input type="number" id="pLong" min="1" max="90"></div>
@@ -573,8 +578,8 @@ body[data-warn="danger"] #time{animation:pulse 1s ease-in-out infinite}
       <button id="baseReset" style="flex:1">테마 기본값으로</button>
     </div>
     <div class="total" id="baseMsg"></div>
-    <div class="toggle"><label for="soundChk">종료 알림음</label><input type="checkbox" id="soundChk"></div>
-    <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음</label><input type="checkbox" id="preWarnChk"></div>
+    <div class="toggle"><label for="soundChk">종료 알림음 (단계 끝날 때 소리)</label><input type="checkbox" id="soundChk"></div>
+    <div class="toggle"><label for="preWarnChk">종료 30초 전 예고음 (낮은 소리 두 번)</label><input type="checkbox" id="preWarnChk"></div>
     <div class="toggle"><label for="overrunChk">종료 후 초과 시간 표시 (+2:30)</label><input type="checkbox" id="overrunChk"></div>
     <div class="toggle"><label for="clockChk">현재 시각 · 종료 예정 시각 표시</label><input type="checkbox" id="clockChk"></div>
     <label for="vol">음량</label>
